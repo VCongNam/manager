@@ -64,59 +64,68 @@ export function AddPurchaseModal() {
           Thêm đơn nhập hàng
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>Thêm đơn nhập hàng</DialogTitle>
           <DialogDescription>Điền đầy đủ thông tin về sản phẩm nhập kho</DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="product_name">Tên sản phẩm *</Label>
-              <Input id="product_name" name="product_name" placeholder="Ví dụ: Gạo ST25" required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="unit">Đơn vị *</Label>
-              <Input id="unit" name="unit" placeholder="Ví dụ: kg, chai, gói" required />
-            </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="quantity">Số lượng *</Label>
-              <Input id="quantity" name="quantity" type="number" step="0.01" placeholder="0" required />
+        <div className="flex-1 overflow-y-auto pr-2">
+          <form action={handleSubmit} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="product_name">Tên sản phẩm *</Label>
+                <Input id="product_name" name="product_name" placeholder="Ví dụ: Gạo ST25" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier_name">Tên nhà cung cấp</Label>
+                <Input id="supplier_name" name="supplier_name" placeholder="Ví dụ: Công ty ABC" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="total_cost">Tổng chi phí (VNĐ) *</Label>
-              <Input id="total_cost" name="total_cost" type="number" placeholder="0" required />
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="quantity">Số lượng *</Label>
+                <Input id="quantity" name="quantity" type="number" step="0.01" placeholder="0" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="unit">Đơn vị *</Label>
+                <Input id="unit" name="unit" placeholder="Ví dụ: kg, chai, gói" required />
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="purchase_date">Ngày nhập *</Label>
-            <Input
-              id="purchase_date"
-              name="purchase_date"
-              type="date"
-              defaultValue={new Date().toISOString().split("T")[0]}
-              required
-            />
-          </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="total_cost">Tổng chi phí (VNĐ) *</Label>
+                <Input id="total_cost" name="total_cost" type="number" placeholder="0" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="purchase_date">Ngày nhập *</Label>
+                <Input
+                  id="purchase_date"
+                  name="purchase_date"
+                  type="date"
+                  defaultValue={new Date().toISOString().split("T")[0]}
+                  required
+                />
+              </div>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Ghi chú</Label>
-            <Textarea id="notes" name="notes" placeholder="Ghi chú thêm về sản phẩm..." rows={3} />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="notes">Ghi chú</Label>
+              <Textarea id="notes" name="notes" placeholder="Ghi chú thêm về sản phẩm..." rows={3} />
+            </div>
 
-          <div className="flex gap-4 pt-4">
-            <Button type="submit" disabled={loading}>
-              {loading ? "Đang tạo..." : "Tạo đơn nhập hàng"}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Hủy
-            </Button>
-          </div>
-        </form>
+            <div className="flex gap-4 pt-4">
+              <Button type="submit" disabled={loading}>
+                {loading ? "Đang tạo..." : "Tạo đơn nhập hàng"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Hủy
+              </Button>
+            </div>
+          </form>
+        </div>
       </DialogContent>
     </Dialog>
   )

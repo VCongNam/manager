@@ -5,8 +5,7 @@ import { supabase } from "./supabase"
 
 // Thêm function để force refresh tất cả
 export async function forceRefreshAll() {
-  // Revalidate tất cả paths
-  revalidatePath("/", "layout") // Revalidate toàn bộ layout
+  revalidatePath("/", "layout")
   revalidatePath("/")
   revalidatePath("/purchases")
   revalidatePath("/sales")
@@ -23,10 +22,10 @@ export async function createPurchase(formData: FormData) {
       unit: formData.get("unit") as string,
       total_cost: Number.parseInt(formData.get("total_cost") as string),
       purchase_date: formData.get("purchase_date") as string,
+      supplier_name: (formData.get("supplier_name") as string) || null,
       notes: (formData.get("notes") as string) || null,
     }
 
-    // Validation
     if (!data.product_name || !data.unit || isNaN(data.quantity) || isNaN(data.total_cost)) {
       throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
     }
@@ -40,13 +39,94 @@ export async function createPurchase(formData: FormData) {
 
     if (error) throw error
 
-    // Force refresh tất cả
     await forceRefreshAll()
-
     return { success: true }
   } catch (error: any) {
     console.error("Error creating purchase:", error)
     return { success: false, error: error.message || "Có lỗi xảy ra khi tạo đơn nhập hàng" }
+  }
+}
+
+export async function updatePurchase(
+  purchaseId: string,
+  updateData: {
+    product_name: string
+    quantity: string
+    unit: string
+    total_cost: string
+    supplier_name: string
+    notes: string
+  },
+) {
+  try {
+    const quantity = Number.parseFloat(updateData.quantity)
+    const totalCost = Number.parseInt(updateData.total_cost)
+
+    if (!updateData.product_name || !updateData.unit || isNaN(quantity) || isNaN(totalCost)) {
+      throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
+    }
+
+    // Get current purchase to calculate remaining quantity
+    const { data: currentPurchase, error: fetchError } = await supabase
+      .from("purchases")
+      .select("quantity, remaining_quantity")
+      .eq("id", purchaseId)
+      .single()
+
+    if (fetchError || !currentPurchase) {
+      throw new Error("Không tìm thấy đơn nhập hàng")
+    }
+
+    const soldQuantity = currentPurchase.quantity - currentPurchase.remaining_quantity
+    const newRemainingQuantity = quantity - soldQuantity
+
+    if (newRemainingQuantity < 0) {
+      throw new Error("Số lượng mới không thể nhỏ hơn số lượng đã bán")
+    }
+
+    const { error } = await supabase
+      .from("purchases")
+      .update({
+        product_name: updateData.product_name,
+        quantity: quantity,
+        unit: updateData.unit,
+        total_cost: totalCost,
+        supplier_name: updateData.supplier_name || null,
+        notes: updateData.notes || null,
+        remaining_quantity: newRemainingQuantity,
+      })
+      .eq("id", purchaseId)
+
+    if (error) throw error
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error updating purchase:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật đơn nhập hàng" }
+  }
+}
+
+export async function deletePurchase(purchaseId: string) {
+  try {
+    // Check if there are any sales for this purchase
+    const { data: sales, error: salesError } = await supabase.from("sales").select("id").eq("purchase_id", purchaseId)
+
+    if (salesError) throw salesError
+
+    if (sales && sales.length > 0) {
+      throw new Error("Không thể xóa đơn nhập hàng đã có giao dịch bán")
+    }
+
+    const { error } = await supabase.from("purchases").delete().eq("id", purchaseId)
+
+    if (error) throw error
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error deleting purchase:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi xóa đơn nhập hàng" }
   }
 }
 
@@ -55,17 +135,27 @@ export async function createSale(formData: FormData) {
     const purchaseId = formData.get("purchase_id") as string
     const quantity = Number.parseFloat(formData.get("quantity") as string)
     const totalPrice = Number.parseInt(formData.get("total_price") as string)
-    const paymentStatus = formData.get("payment_status") as string
+    const shippingFee = Number.parseInt(formData.get("shipping_fee") as string) || 0
+    const customerName = formData.get("customer_name") as string
+    const deliveryMethod = formData.get("delivery_method") as "pickup" | "delivery"
+    const amountPaid = Number.parseInt(formData.get("amount_paid") as string) || 0
     const saleDate = formData.get("sale_date") as string
     const notes = formData.get("notes") as string
 
-    // Validation
-    if (!purchaseId || isNaN(quantity) || isNaN(totalPrice) || !paymentStatus || !saleDate) {
+    if (!purchaseId || isNaN(quantity) || isNaN(totalPrice) || !saleDate) {
       throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
     }
 
-    if (!["paid", "unpaid", "partial"].includes(paymentStatus)) {
-      throw new Error("Trạng thái thanh toán không hợp lệ")
+    const totalAmount = totalPrice + shippingFee
+    const amountRemaining = totalAmount - amountPaid
+
+    let paymentStatus: "paid" | "unpaid" | "partial"
+    if (amountPaid >= totalAmount) {
+      paymentStatus = "paid"
+    } else if (amountPaid > 0) {
+      paymentStatus = "partial"
+    } else {
+      paymentStatus = "unpaid"
     }
 
     const unitPrice = Math.round(totalPrice / quantity)
@@ -92,10 +182,14 @@ export async function createSale(formData: FormData) {
         quantity: quantity,
         unit_price: unitPrice,
         total_revenue: totalPrice,
+        shipping_fee: shippingFee,
+        customer_name: customerName || null,
+        delivery_method: deliveryMethod || "pickup",
+        amount_paid: amountPaid,
+        amount_remaining: amountRemaining,
         payment_status: paymentStatus,
         sale_date: saleDate,
         notes: notes || null,
-        shipping_fee: 0,
       },
     ])
 
@@ -110,13 +204,265 @@ export async function createSale(formData: FormData) {
 
     if (updateError) throw updateError
 
-    // Force refresh tất cả
     await forceRefreshAll()
-
     return { success: true }
   } catch (error: any) {
     console.error("Error creating sale:", error)
     return { success: false, error: error.message || "Có lỗi xảy ra khi tạo đơn bán hàng" }
+  }
+}
+
+export async function updateSale(
+  saleId: string,
+  updateData: {
+    customer_name: string
+    delivery_method: string
+    amount_paid: string
+    shipping_fee: string
+    notes: string
+    notes_internal: string
+  },
+) {
+  try {
+    const amountPaid = Number.parseInt(updateData.amount_paid) || 0
+    const shippingFee = Number.parseInt(updateData.shipping_fee) || 0
+
+    // Get current sale to calculate totals
+    const { data: currentSale, error: fetchError } = await supabase
+      .from("sales")
+      .select("total_revenue")
+      .eq("id", saleId)
+      .single()
+
+    if (fetchError || !currentSale) {
+      throw new Error("Không tìm thấy đơn hàng")
+    }
+
+    const totalAmount = currentSale.total_revenue + shippingFee
+    const amountRemaining = totalAmount - amountPaid
+
+    let paymentStatus: "paid" | "unpaid" | "partial"
+    if (amountPaid >= totalAmount) {
+      paymentStatus = "paid"
+    } else if (amountPaid > 0) {
+      paymentStatus = "partial"
+    } else {
+      paymentStatus = "unpaid"
+    }
+
+    const { error } = await supabase
+      .from("sales")
+      .update({
+        customer_name: updateData.customer_name || null,
+        delivery_method: updateData.delivery_method as "pickup" | "delivery",
+        amount_paid: amountPaid,
+        amount_remaining: amountRemaining,
+        shipping_fee: shippingFee,
+        payment_status: paymentStatus,
+        notes: updateData.notes || null,
+        notes_internal: updateData.notes_internal || null,
+      })
+      .eq("id", saleId)
+
+    if (error) throw error
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error updating sale:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật đơn hàng" }
+  }
+}
+
+export async function updateSaleComplete(
+  saleId: string,
+  updateData: {
+    purchase_id: string
+    quantity: string
+    total_revenue: string
+    customer_name: string
+    delivery_method: string
+    amount_paid: string
+    shipping_fee: string
+    sale_date: string
+    notes: string
+    notes_internal: string
+  },
+) {
+  try {
+    const quantity = Number.parseFloat(updateData.quantity)
+    const totalRevenue = Number.parseInt(updateData.total_revenue)
+    const amountPaid = Number.parseInt(updateData.amount_paid) || 0
+    const shippingFee = Number.parseInt(updateData.shipping_fee) || 0
+
+    if (!updateData.purchase_id || isNaN(quantity) || isNaN(totalRevenue) || !updateData.sale_date) {
+      throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
+    }
+
+    // Get current sale info
+    const { data: currentSale, error: currentSaleError } = await supabase
+      .from("sales")
+      .select("purchase_id, quantity")
+      .eq("id", saleId)
+      .single()
+
+    if (currentSaleError || !currentSale) {
+      throw new Error("Không tìm thấy đơn hàng")
+    }
+
+    // Get new purchase info
+    const { data: newPurchase, error: newPurchaseError } = await supabase
+      .from("purchases")
+      .select("*")
+      .eq("id", updateData.purchase_id)
+      .single()
+
+    if (newPurchaseError || !newPurchase) {
+      throw new Error("Không tìm thấy sản phẩm")
+    }
+
+    // Calculate available quantity for new purchase
+    let availableQuantity = newPurchase.remaining_quantity
+    if (currentSale.purchase_id === updateData.purchase_id) {
+      // Same product, add back current quantity
+      availableQuantity += currentSale.quantity
+    }
+
+    if (quantity > availableQuantity) {
+      throw new Error(`Số lượng bán vượt quá số lượng có thể bán (${availableQuantity})`)
+    }
+
+    // Calculate payment status
+    const totalAmount = totalRevenue + shippingFee
+    const amountRemaining = totalAmount - amountPaid
+
+    let paymentStatus: "paid" | "unpaid" | "partial"
+    if (amountPaid >= totalAmount) {
+      paymentStatus = "paid"
+    } else if (amountPaid > 0) {
+      paymentStatus = "partial"
+    } else {
+      paymentStatus = "unpaid"
+    }
+
+    const unitPrice = Math.round(totalRevenue / quantity)
+
+    // Update sale
+    const { error: saleError } = await supabase
+      .from("sales")
+      .update({
+        purchase_id: updateData.purchase_id,
+        quantity: quantity,
+        unit_price: unitPrice,
+        total_revenue: totalRevenue,
+        customer_name: updateData.customer_name || null,
+        delivery_method: updateData.delivery_method as "pickup" | "delivery",
+        amount_paid: amountPaid,
+        amount_remaining: amountRemaining,
+        shipping_fee: shippingFee,
+        payment_status: paymentStatus,
+        sale_date: updateData.sale_date,
+        notes: updateData.notes || null,
+        notes_internal: updateData.notes_internal || null,
+      })
+      .eq("id", saleId)
+
+    if (saleError) throw saleError
+
+    // Update purchase quantities
+    if (currentSale.purchase_id !== updateData.purchase_id) {
+      // Different product - restore old purchase quantity
+      const { data: oldPurchase, error: oldPurchaseError } = await supabase
+        .from("purchases")
+        .select("remaining_quantity")
+        .eq("id", currentSale.purchase_id)
+        .single()
+
+      if (oldPurchaseError || !oldPurchase) {
+        throw new Error("Không tìm thấy thông tin sản phẩm cũ")
+      }
+
+      const { error: restoreError } = await supabase
+        .from("purchases")
+        .update({ remaining_quantity: oldPurchase.remaining_quantity + currentSale.quantity })
+        .eq("id", currentSale.purchase_id)
+
+      if (restoreError) throw restoreError
+
+      // Update new purchase quantity
+      const { error: updateNewError } = await supabase
+        .from("purchases")
+        .update({ remaining_quantity: newPurchase.remaining_quantity - quantity })
+        .eq("id", updateData.purchase_id)
+
+      if (updateNewError) throw updateNewError
+    } else {
+      // Same product - adjust quantity difference
+      const quantityDifference = quantity - currentSale.quantity
+      const newRemainingQuantity = newPurchase.remaining_quantity - quantityDifference
+
+      const { error: updateError } = await supabase
+        .from("purchases")
+        .update({ remaining_quantity: newRemainingQuantity })
+        .eq("id", updateData.purchase_id)
+
+      if (updateError) throw updateError
+    }
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error updating sale:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật đơn hàng" }
+  }
+}
+
+export async function deleteSale(saleId: string) {
+  try {
+    // Get sale info to restore purchase quantity
+    const { data: sale, error: saleError } = await supabase
+      .from("sales")
+      .select("purchase_id, quantity")
+      .eq("id", saleId)
+      .single()
+
+    if (saleError || !sale) {
+      throw new Error("Không tìm thấy đơn hàng")
+    }
+
+    // Delete expenses first
+    const { error: expenseError } = await supabase.from("expenses").delete().eq("sale_id", saleId)
+
+    if (expenseError) throw expenseError
+
+    // Delete sale
+    const { error: deleteError } = await supabase.from("sales").delete().eq("id", saleId)
+
+    if (deleteError) throw deleteError
+
+    // Restore purchase quantity
+    const { data: purchase, error: purchaseError } = await supabase
+      .from("purchases")
+      .select("remaining_quantity")
+      .eq("id", sale.purchase_id)
+      .single()
+
+    if (purchaseError || !purchase) {
+      throw new Error("Không tìm thấy thông tin nhập hàng")
+    }
+
+    const { error: updateError } = await supabase
+      .from("purchases")
+      .update({ remaining_quantity: purchase.remaining_quantity + sale.quantity })
+      .eq("id", sale.purchase_id)
+
+    if (updateError) throw updateError
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error deleting sale:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi xóa đơn hàng" }
   }
 }
 
@@ -130,52 +476,11 @@ export async function updateSalePaymentStatus(saleId: string, newStatus: string)
 
     if (error) throw error
 
-    // Force refresh tất cả
     await forceRefreshAll()
-
     return { success: true }
   } catch (error: any) {
     console.error("Error updating payment status:", error)
     return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật trạng thái thanh toán" }
-  }
-}
-
-export async function updateSale(
-  saleId: string,
-  updateData: {
-    shipping_fee: string
-    payment_status: string
-    notes: string
-    notes_internal: string
-  },
-) {
-  try {
-    const shippingFee = Number.parseInt(updateData.shipping_fee) || 0
-    const paymentStatus = updateData.payment_status
-
-    if (!["paid", "unpaid", "partial"].includes(paymentStatus)) {
-      throw new Error("Trạng thái thanh toán không hợp lệ")
-    }
-
-    const { error } = await supabase
-      .from("sales")
-      .update({
-        shipping_fee: shippingFee,
-        payment_status: paymentStatus,
-        notes: updateData.notes || null,
-        notes_internal: updateData.notes_internal || null,
-      })
-      .eq("id", saleId)
-
-    if (error) throw error
-
-    // Force refresh tất cả
-    await forceRefreshAll()
-
-    return { success: true }
-  } catch (error: any) {
-    console.error("Error updating sale:", error)
-    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật đơn hàng" }
   }
 }
 
@@ -212,9 +517,7 @@ export async function addExpense(
 
     if (error) throw error
 
-    // Force refresh tất cả
     await forceRefreshAll()
-
     return { success: true }
   } catch (error: any) {
     console.error("Error adding expense:", error)
@@ -228,12 +531,65 @@ export async function deleteExpense(expenseId: string) {
 
     if (error) throw error
 
-    // Force refresh tất cả
     await forceRefreshAll()
-
     return { success: true }
   } catch (error: any) {
     console.error("Error deleting expense:", error)
     return { success: false, error: error.message || "Có lỗi xảy ra khi xóa chi phí" }
+  }
+}
+
+export async function addDailyExpense(
+  expenseDate: string,
+  expenseData: {
+    expense_type: string
+    description: string
+    amount: string
+  },
+) {
+  try {
+    const amount = Number.parseInt(expenseData.amount)
+    if (isNaN(amount) || amount <= 0) {
+      throw new Error("Số tiền phải là số dương")
+    }
+
+    if (!["fuel", "rent", "utilities", "marketing", "other"].includes(expenseData.expense_type)) {
+      throw new Error("Loại chi phí không hợp lệ")
+    }
+
+    if (!expenseData.description.trim()) {
+      throw new Error("Vui lòng nhập mô tả chi phí")
+    }
+
+    const { error } = await supabase.from("daily_expenses").insert([
+      {
+        expense_date: expenseDate,
+        expense_type: expenseData.expense_type,
+        description: expenseData.description.trim(),
+        amount: amount,
+      },
+    ])
+
+    if (error) throw error
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error adding daily expense:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi thêm chi phí hàng ngày" }
+  }
+}
+
+export async function deleteDailyExpense(expenseId: string) {
+  try {
+    const { error } = await supabase.from("daily_expenses").delete().eq("id", expenseId)
+
+    if (error) throw error
+
+    await forceRefreshAll()
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error deleting daily expense:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi xóa chi phí hàng ngày" }
   }
 }

@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, ShoppingCart, TrendingUp, DollarSign, Calendar, Edit } from "lucide-react"
+import { Package, ShoppingCart, TrendingUp, DollarSign, Calendar, Edit, History } from "lucide-react"
 import Link from "next/link"
 import { supabase } from "@/lib/supabase"
 import { AddPurchaseModal } from "@/components/add-purchase-modal"
@@ -9,16 +9,24 @@ import { EditSaleModal } from "@/components/edit-sale-modal"
 import { QuickPaymentToggle } from "@/components/quick-payment-toggle"
 import { RefreshButton } from "@/components/refresh-button"
 import type { Sale } from "@/lib/supabase"
+import { DailyExpenseModal } from "@/components/daily-expense-modal"
 
 // Force dynamic rendering - không cache
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-// Đơn giản hóa function - không dùng unstable_cache
 async function getDashboardData() {
   const today = new Date().toISOString().split("T")[0]
 
-  const [purchasesResult, salesResult, todayPurchasesResult, todaySalesResult, recentSalesResult] = await Promise.all([
+  const [
+    purchasesResult,
+    salesResult,
+    todayPurchasesResult,
+    todaySalesResult,
+    recentSalesResult,
+    dailyExpensesResult,
+    todayExpensesResult,
+  ] = await Promise.all([
     supabase.from("purchases").select("*"),
     supabase.from("sales").select("*"),
     supabase.from("purchases").select("*").eq("purchase_date", today),
@@ -40,6 +48,8 @@ async function getDashboardData() {
       `)
       .order("sale_date", { ascending: false })
       .limit(15),
+    supabase.from("daily_expenses").select("*"),
+    supabase.from("daily_expenses").select("*").eq("expense_date", today),
   ])
 
   const purchases = purchasesResult.data || []
@@ -47,6 +57,8 @@ async function getDashboardData() {
   const todayPurchases = todayPurchasesResult.data || []
   const todaySales = todaySalesResult.data || []
   const recentSales = recentSalesResult.data || []
+  const dailyExpenses = dailyExpensesResult.data || []
+  const todayExpenses = todayExpensesResult.data || []
 
   // Tính toán doanh thu thực (bao gồm phí ship và chi phí khác)
   const calculateActualRevenue = (sale: any) => {
@@ -56,8 +68,11 @@ async function getDashboardData() {
 
   const totalPurchaseCost = purchases.reduce((sum, p) => sum + p.total_cost, 0)
   const totalActualRevenue = sales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
+  const totalDailyExpenses = dailyExpenses.reduce((sum, e) => sum + e.amount, 0)
+
   const todayPurchaseCost = todayPurchases.reduce((sum, p) => sum + p.total_cost, 0)
   const todayActualRevenue = todaySales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
+  const todayDailyExpenses = todayExpenses.reduce((sum, e) => sum + e.amount, 0)
 
   // Group recent sales by date
   const salesByDate = recentSales.reduce((acc: { [key: string]: Sale[] }, sale) => {
@@ -76,14 +91,18 @@ async function getDashboardData() {
   return {
     totalPurchaseCost,
     totalActualRevenue,
+    totalDailyExpenses,
     totalProducts: purchases.length,
     totalSales: sales.length,
     profit: totalActualRevenue - totalPurchaseCost,
+    realProfit: totalActualRevenue - totalPurchaseCost - totalDailyExpenses,
     todayPurchaseCost,
     todayActualRevenue,
+    todayDailyExpenses,
     todayPurchases: todayPurchases.length,
     todaySales: todaySales.length,
     todayProfit: todayActualRevenue - todayPurchaseCost,
+    todayRealProfit: todayActualRevenue - todayPurchaseCost - todayDailyExpenses,
     salesByDate,
     sortedDates,
     calculateActualRevenue,
@@ -102,7 +121,15 @@ export default async function Dashboard() {
             Tổng quan hoạt động kinh doanh - {new Date().toLocaleDateString("vi-VN")}
           </p>
         </div>
-        <RefreshButton />
+        <div className="flex gap-2">
+          <Link href="/history">
+            <Button variant="outline" className="gap-2 bg-transparent">
+              <History className="h-4 w-4" />
+              Lịch sử giao dịch
+            </Button>
+          </Link>
+          <RefreshButton />
+        </div>
       </div>
 
       {/* Thống kê hôm nay */}
@@ -145,6 +172,20 @@ export default async function Dashboard() {
               <div className="text-2xl font-bold text-purple-800">{data.todayProfit.toLocaleString("vi-VN")}đ</div>
               <p className="text-xs text-purple-600">
                 {data.todayActualRevenue > 0 ? ((data.todayProfit / data.todayActualRevenue) * 100).toFixed(1) : 0}%
+                margin
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-red-200 bg-red-50">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-red-800">Lợi nhuận thực hôm nay</CardTitle>
+              <TrendingUp className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-800">{data.todayRealProfit.toLocaleString("vi-VN")}đ</div>
+              <p className="text-xs text-red-600">
+                {data.todayActualRevenue > 0 ? ((data.todayRealProfit / data.todayActualRevenue) * 100).toFixed(1) : 0}%
                 margin
               </p>
             </CardContent>
@@ -204,6 +245,20 @@ export default async function Dashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Tổng lợi nhuận thực</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{data.realProfit.toLocaleString("vi-VN")}đ</div>
+              <p className="text-xs text-muted-foreground">
+                {data.totalActualRevenue > 0 ? ((data.realProfit / data.totalActualRevenue) * 100).toFixed(1) : 0}%
+                margin
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">ROI</CardTitle>
               <ShoppingCart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
@@ -227,15 +282,16 @@ export default async function Dashboard() {
           <CardContent className="space-y-4">
             <AddPurchaseModal />
             <AddSaleModal />
+            <DailyExpenseModal />
             <div className="pt-2 space-y-2">
               <Link href="/purchases">
                 <Button variant="outline" className="w-full bg-transparent">
                   Xem tất cả nhập hàng
                 </Button>
               </Link>
-              <Link href="/reports">
+              <Link href="/history">
                 <Button variant="outline" className="w-full bg-transparent">
-                  Xem báo cáo chi tiết
+                  Xem lịch sử giao dịch
                 </Button>
               </Link>
             </div>
@@ -295,6 +351,9 @@ export default async function Dashboard() {
                           >
                             <div className="flex-1">
                               <span className="font-medium">{sale.purchases?.product_name || "N/A"}</span>
+                              {sale.customer_name && (
+                                <span className="ml-2 text-xs text-blue-600">({sale.customer_name})</span>
+                              )}
                               {hasExtras && <span className="ml-2 text-xs text-blue-600">(có phí/chi phí)</span>}
                             </div>
                             <div className="flex items-center gap-2">
@@ -303,6 +362,11 @@ export default async function Dashboard() {
                                 {actualRevenue !== sale.total_revenue && (
                                   <div className="text-xs text-muted-foreground">
                                     (gốc: {sale.total_revenue.toLocaleString("vi-VN")}đ)
+                                  </div>
+                                )}
+                                {(sale.amount_remaining || 0) > 0 && (
+                                  <div className="text-xs text-red-600">
+                                    Còn: {(sale.amount_remaining || 0).toLocaleString("vi-VN")}đ
                                   </div>
                                 )}
                               </div>
