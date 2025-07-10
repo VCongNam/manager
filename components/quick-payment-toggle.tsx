@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { updateSalePaymentStatus } from "@/lib/actions"
+import { useToast } from "@/hooks/use-toast"
 import type { Sale } from "@/lib/supabase"
 
 interface QuickPaymentToggleProps {
@@ -12,6 +13,7 @@ interface QuickPaymentToggleProps {
 
 export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
   const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
 
   const togglePaymentStatus = async () => {
     setLoading(true)
@@ -19,12 +21,30 @@ export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
       const newStatus = sale.payment_status === "paid" ? "unpaid" : "paid"
       const result = await updateSalePaymentStatus(sale.id, newStatus)
 
-      if (!result.success) {
-        alert(result.error)
+      if (result.success) {
+        toast({
+          title: "✅ Cập nhật thành công",
+          description: `Trạng thái thanh toán đã được thay đổi thành "${
+            newStatus === "paid" ? "Đã thanh toán" : "Chưa thanh toán"
+          }"`,
+          duration: 2000,
+        })
+      } else {
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 4000,
+        })
       }
     } catch (error) {
       console.error("Error updating payment status:", error)
-      alert("Có lỗi xảy ra khi cập nhật trạng thái thanh toán")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra khi cập nhật trạng thái thanh toán",
+        variant: "destructive",
+        duration: 4000,
+      })
     } finally {
       setLoading(false)
     }

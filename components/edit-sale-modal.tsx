@@ -21,6 +21,7 @@ import { Edit, Plus, Trash2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import type { Sale, Expense } from "@/lib/supabase"
 import { updateSale, addExpense, deleteExpense } from "@/lib/actions"
+import { useToast } from "@/hooks/use-toast"
 
 interface EditSaleModalProps {
   sale: Sale
@@ -31,6 +32,7 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const { toast } = useToast()
   const [formData, setFormData] = useState({
     shipping_fee: sale.shipping_fee?.toString() || "0",
     payment_status: sale.payment_status || "unpaid",
@@ -61,6 +63,11 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
 
     if (error) {
       console.error("Error fetching expenses:", error)
+      toast({
+        title: "❌ Lỗi",
+        description: "Không thể tải danh sách chi phí",
+        variant: "destructive",
+      })
       return
     }
 
@@ -75,13 +82,28 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
       const result = await updateSale(sale.id, formData)
 
       if (result.success) {
+        toast({
+          title: "✅ Cập nhật thành công",
+          description: "Thông tin đơn hàng đã được lưu",
+          duration: 3000,
+        })
         setOpen(false)
       } else {
-        alert(result.error)
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 5000,
+        })
       }
     } catch (error) {
       console.error("Error updating sale:", error)
-      alert("Có lỗi xảy ra khi cập nhật đơn hàng")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra khi cập nhật đơn hàng",
+        variant: "destructive",
+        duration: 5000,
+      })
     } finally {
       setLoading(false)
     }
@@ -89,7 +111,12 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
 
   const handleAddExpense = async () => {
     if (!newExpense.description.trim() || !newExpense.amount) {
-      alert("Vui lòng điền đầy đủ thông tin chi phí")
+      toast({
+        title: "⚠️ Thiếu thông tin",
+        description: "Vui lòng điền đầy đủ thông tin chi phí",
+        variant: "destructive",
+        duration: 3000,
+      })
       return
     }
 
@@ -97,6 +124,11 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
       const result = await addExpense(sale.id, newExpense)
 
       if (result.success) {
+        toast({
+          title: "✅ Thêm thành công",
+          description: "Chi phí đã được thêm vào đơn hàng",
+          duration: 2000,
+        })
         setNewExpense({
           expense_type: "other",
           description: "",
@@ -104,28 +136,51 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
         })
         fetchExpenses()
       } else {
-        alert(result.error)
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 4000,
+        })
       }
     } catch (error) {
       console.error("Error adding expense:", error)
-      alert("Có lỗi xảy ra khi thêm chi phí")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra khi thêm chi phí",
+        variant: "destructive",
+        duration: 4000,
+      })
     }
   }
 
   const handleDeleteExpense = async (expenseId: string) => {
-    if (!confirm("Bạn có chắc muốn xóa chi phí này?")) return
-
     try {
       const result = await deleteExpense(expenseId)
 
       if (result.success) {
+        toast({
+          title: "✅ Xóa thành công",
+          description: "Chi phí đã được xóa khỏi đơn hàng",
+          duration: 2000,
+        })
         fetchExpenses()
       } else {
-        alert(result.error)
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 4000,
+        })
       }
     } catch (error) {
       console.error("Error deleting expense:", error)
-      alert("Có lỗi xảy ra khi xóa chi phí")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra khi xóa chi phí",
+        variant: "destructive",
+        duration: 4000,
+      })
     }
   }
 
@@ -269,7 +324,11 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDeleteExpense(expense.id)}
+                        onClick={() => {
+                          if (confirm("Bạn có chắc muốn xóa chi phí này?")) {
+                            handleDeleteExpense(expense.id)
+                          }
+                        }}
                         className="text-red-600 hover:text-red-700"
                       >
                         <Trash2 className="h-4 w-4" />

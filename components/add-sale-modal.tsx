@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { createSale } from "@/lib/actions"
+import { useToast } from "@/hooks/use-toast"
 import type { Purchase } from "@/lib/supabase"
 
 export function AddSaleModal() {
@@ -24,6 +25,7 @@ export function AddSaleModal() {
   const [loading, setLoading] = useState(false)
   const [purchases, setPurchases] = useState<Purchase[]>([])
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     if (open) {
@@ -40,6 +42,11 @@ export function AddSaleModal() {
 
     if (error) {
       console.error("Error fetching purchases:", error)
+      toast({
+        title: "❌ Lỗi",
+        description: "Không thể tải danh sách sản phẩm",
+        variant: "destructive",
+      })
       return
     }
 
@@ -58,14 +65,29 @@ export function AddSaleModal() {
       const result = await createSale(formData)
 
       if (result.success) {
+        toast({
+          title: "✅ Thành công!",
+          description: "Đã thêm đơn bán hàng mới",
+          duration: 3000,
+        })
         setSelectedPurchase(null)
         setOpen(false)
       } else {
-        alert(result.error)
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 5000,
+        })
       }
     } catch (error) {
       console.error("Error:", error)
-      alert("Có lỗi xảy ra")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra, vui lòng thử lại",
+        variant: "destructive",
+        duration: 5000,
+      })
     } finally {
       setLoading(false)
     }

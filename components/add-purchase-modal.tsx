@@ -15,10 +15,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus } from "lucide-react"
 import { createPurchase } from "@/lib/actions"
+import { useToast } from "@/hooks/use-toast"
 
 export function AddPurchaseModal() {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
 
   const handleSubmit = async (formData: FormData) => {
     setLoading(true)
@@ -27,14 +29,28 @@ export function AddPurchaseModal() {
       const result = await createPurchase(formData)
 
       if (result.success) {
+        toast({
+          title: "✅ Thành công!",
+          description: "Đã thêm đơn nhập hàng mới",
+          duration: 3000,
+        })
         setOpen(false)
-        // Form sẽ được reset tự động khi dialog đóng
       } else {
-        alert(result.error)
+        toast({
+          title: "❌ Lỗi",
+          description: result.error,
+          variant: "destructive",
+          duration: 5000,
+        })
       }
     } catch (error) {
       console.error("Error:", error)
-      alert("Có lỗi xảy ra")
+      toast({
+        title: "❌ Lỗi hệ thống",
+        description: "Có lỗi xảy ra, vui lòng thử lại",
+        variant: "destructive",
+        duration: 5000,
+      })
     } finally {
       setLoading(false)
     }
