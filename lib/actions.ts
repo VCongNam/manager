@@ -14,6 +14,11 @@ export async function createPurchase(formData: FormData) {
       notes: (formData.get("notes") as string) || null,
     }
 
+    // Validation
+    if (!data.product_name || !data.unit || isNaN(data.quantity) || isNaN(data.total_cost)) {
+      throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
+    }
+
     const { error } = await supabase.from("purchases").insert([
       {
         ...data,
@@ -31,9 +36,9 @@ export async function createPurchase(formData: FormData) {
     revalidatePath("/daily-report")
 
     return { success: true }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating purchase:", error)
-    return { success: false, error: "Có lỗi xảy ra khi tạo đơn nhập hàng" }
+    return { success: false, error: error.message || "Có lỗi xảy ra khi tạo đơn nhập hàng" }
   }
 }
 
@@ -42,6 +47,19 @@ export async function createSale(formData: FormData) {
     const purchaseId = formData.get("purchase_id") as string
     const quantity = Number.parseFloat(formData.get("quantity") as string)
     const totalPrice = Number.parseInt(formData.get("total_price") as string)
+    const paymentStatus = formData.get("payment_status") as string
+    const saleDate = formData.get("sale_date") as string
+    const notes = formData.get("notes") as string
+
+    // Validation
+    if (!purchaseId || isNaN(quantity) || isNaN(totalPrice) || !paymentStatus || !saleDate) {
+      throw new Error("Vui lòng điền đầy đủ thông tin hợp lệ")
+    }
+
+    if (!["paid", "unpaid", "partial"].includes(paymentStatus)) {
+      throw new Error("Trạng thái thanh toán không hợp lệ")
+    }
+
     const unitPrice = Math.round(totalPrice / quantity)
 
     // Get purchase info
@@ -66,9 +84,10 @@ export async function createSale(formData: FormData) {
         quantity: quantity,
         unit_price: unitPrice,
         total_revenue: totalPrice,
-        payment_status: formData.get("payment_status") as string,
-        sale_date: formData.get("sale_date") as string,
-        notes: (formData.get("notes") as string) || null,
+        payment_status: paymentStatus,
+        sale_date: saleDate,
+        notes: notes || null,
+        shipping_fee: 0, // Default value
       },
     ])
 
@@ -99,6 +118,11 @@ export async function createSale(formData: FormData) {
 
 export async function updateSalePaymentStatus(saleId: string, newStatus: string) {
   try {
+    // Validation
+    if (!["paid", "unpaid", "partial"].includes(newStatus)) {
+      throw new Error("Trạng thái thanh toán không hợp lệ")
+    }
+
     const { error } = await supabase.from("sales").update({ payment_status: newStatus }).eq("id", saleId)
 
     if (error) throw error
@@ -110,21 +134,37 @@ export async function updateSalePaymentStatus(saleId: string, newStatus: string)
     revalidatePath("/daily-report")
 
     return { success: true }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating payment status:", error)
-    return { success: false, error: "Có lỗi xảy ra khi cập nhật trạng thái thanh toán" }
+    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật trạng thái thanh toán" }
   }
 }
 
-export async function updateSale(saleId: string, formData: FormData) {
+export async function updateSale(
+  saleId: string,
+  updateData: {
+    shipping_fee: string
+    payment_status: string
+    notes: string
+    notes_internal: string
+  },
+) {
   try {
+    // Validation
+    const shippingFee = Number.parseInt(updateData.shipping_fee) || 0
+    const paymentStatus = updateData.payment_status
+
+    if (!["paid", "unpaid", "partial"].includes(paymentStatus)) {
+      throw new Error("Trạng thái thanh toán không hợp lệ")
+    }
+
     const { error } = await supabase
       .from("sales")
       .update({
-        shipping_fee: Number.parseInt(formData.get("shipping_fee") as string) || 0,
-        payment_status: formData.get("payment_status") as string,
-        notes: (formData.get("notes") as string) || null,
-        notes_internal: (formData.get("notes_internal") as string) || null,
+        shipping_fee: shippingFee,
+        payment_status: paymentStatus,
+        notes: updateData.notes || null,
+        notes_internal: updateData.notes_internal || null,
       })
       .eq("id", saleId)
 
@@ -137,8 +177,74 @@ export async function updateSale(saleId: string, formData: FormData) {
     revalidatePath("/daily-report")
 
     return { success: true }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating sale:", error)
-    return { success: false, error: "Có lỗi xảy ra khi cập nhật đơn hàng" }
+    return { success: false, error: error.message || "Có lỗi xảy ra khi cập nhật đơn hàng" }
+  }
+}
+
+export async function addExpense(
+  saleId: string,
+  expenseData: {
+    expense_type: string
+    description: string
+    amount: string
+  },
+) {
+  try {
+    // Validation
+    const amount = Number.parseInt(expenseData.amount)
+    if (isNaN(amount)) {
+      throw new Error("Số tiền không hợp lệ")
+    }
+
+    if (!["shipping_cost", "packaging", "other"].includes(expenseData.expense_type)) {
+      throw new Error("Loại chi phí không hợp lệ")
+    }
+
+    if (!expenseData.description.trim()) {
+      throw new Error("Vui lòng nhập mô tả chi phí")
+    }
+
+    const { error } = await supabase.from("expenses").insert([
+      {
+        sale_id: saleId,
+        expense_type: expenseData.expense_type,
+        description: expenseData.description.trim(),
+        amount: amount,
+      },
+    ])
+
+    if (error) throw error
+
+    // Revalidate pages
+    revalidatePath("/")
+    revalidatePath("/sales")
+    revalidatePath("/reports")
+    revalidatePath("/daily-report")
+
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error adding expense:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi thêm chi phí" }
+  }
+}
+
+export async function deleteExpense(expenseId: string) {
+  try {
+    const { error } = await supabase.from("expenses").delete().eq("id", expenseId)
+
+    if (error) throw error
+
+    // Revalidate pages
+    revalidatePath("/")
+    revalidatePath("/sales")
+    revalidatePath("/reports")
+    revalidatePath("/daily-report")
+
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error deleting expense:", error)
+    return { success: false, error: error.message || "Có lỗi xảy ra khi xóa chi phí" }
   }
 }

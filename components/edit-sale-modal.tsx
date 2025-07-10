@@ -19,9 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Edit, Plus, Trash2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
 import type { Sale, Expense } from "@/lib/supabase"
-import { updateSale } from "@/lib/actions"
+import { updateSale, addExpense, deleteExpense } from "@/lib/actions"
 
 interface EditSaleModalProps {
   sale: Sale
@@ -29,13 +28,12 @@ interface EditSaleModalProps {
 }
 
 export function EditSaleModal({ sale, children }: EditSaleModalProps) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [formData, setFormData] = useState({
     shipping_fee: sale.shipping_fee?.toString() || "0",
-    payment_status: sale.payment_status,
+    payment_status: sale.payment_status || "unpaid",
     notes: sale.notes || "",
     notes_internal: sale.notes_internal || "",
   })
@@ -48,8 +46,15 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
   useEffect(() => {
     if (open) {
       fetchExpenses()
+      // Reset form data when opening
+      setFormData({
+        shipping_fee: sale.shipping_fee?.toString() || "0",
+        payment_status: sale.payment_status || "unpaid",
+        notes: sale.notes || "",
+        notes_internal: sale.notes_internal || "",
+      })
     }
-  }, [open])
+  }, [open, sale])
 
   const fetchExpenses = async () => {
     const { data, error } = await supabase.from("expenses").select("*").eq("sale_id", sale.id).order("created_at")
@@ -67,17 +72,10 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
     setLoading(true)
 
     try {
-      const formData = new FormData()
-      formData.append("shipping_fee", formData.shipping_fee)
-      formData.append("payment_status", formData.payment_status)
-      formData.append("notes", formData.notes)
-      formData.append("notes_internal", formData.notes_internal)
-
       const result = await updateSale(sale.id, formData)
 
       if (result.success) {
         setOpen(false)
-        router.refresh()
       } else {
         alert(result.error)
       }
@@ -90,29 +88,24 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
   }
 
   const handleAddExpense = async () => {
-    if (!newExpense.description || !newExpense.amount) {
+    if (!newExpense.description.trim() || !newExpense.amount) {
       alert("Vui lòng điền đầy đủ thông tin chi phí")
       return
     }
 
     try {
-      const { error } = await supabase.from("expenses").insert([
-        {
-          sale_id: sale.id,
-          expense_type: newExpense.expense_type,
-          description: newExpense.description,
-          amount: Number.parseInt(newExpense.amount),
-        },
-      ])
+      const result = await addExpense(sale.id, newExpense)
 
-      if (error) throw error
-
-      setNewExpense({
-        expense_type: "other",
-        description: "",
-        amount: "",
-      })
-      fetchExpenses()
+      if (result.success) {
+        setNewExpense({
+          expense_type: "other",
+          description: "",
+          amount: "",
+        })
+        fetchExpenses()
+      } else {
+        alert(result.error)
+      }
     } catch (error) {
       console.error("Error adding expense:", error)
       alert("Có lỗi xảy ra khi thêm chi phí")
@@ -123,11 +116,13 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
     if (!confirm("Bạn có chắc muốn xóa chi phí này?")) return
 
     try {
-      const { error } = await supabase.from("expenses").delete().eq("id", expenseId)
+      const result = await deleteExpense(expenseId)
 
-      if (error) throw error
-
-      fetchExpenses()
+      if (result.success) {
+        fetchExpenses()
+      } else {
+        alert(result.error)
+      }
     } catch (error) {
       console.error("Error deleting expense:", error)
       alert("Có lỗi xảy ra khi xóa chi phí")
@@ -233,6 +228,15 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
                 placeholder="Ghi chú nội bộ (không hiển thị cho khách)..."
                 rows={2}
               />
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <Button type="submit" disabled={loading}>
+                {loading ? "Đang lưu..." : "Lưu thay đổi"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Hủy
+              </Button>
             </div>
           </form>
 
@@ -346,15 +350,6 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
                 <span>{finalRevenue.toLocaleString("vi-VN")}đ</span>
               </div>
             </div>
-          </div>
-
-          <div className="flex gap-4 pt-4">
-            <Button type="submit" disabled={loading} onClick={handleSubmit}>
-              {loading ? "Đang lưu..." : "Lưu thay đổi"}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Hủy
-            </Button>
           </div>
         </div>
       </DialogContent>
