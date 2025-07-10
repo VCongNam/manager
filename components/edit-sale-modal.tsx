@@ -21,6 +21,7 @@ import { Edit, Plus, Trash2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import type { Sale, Expense } from "@/lib/supabase"
+import { updateSale } from "@/lib/actions"
 
 interface EditSaleModalProps {
   sale: Sale
@@ -66,20 +67,20 @@ export function EditSaleModal({ sale, children }: EditSaleModalProps) {
     setLoading(true)
 
     try {
-      const { error } = await supabase
-        .from("sales")
-        .update({
-          shipping_fee: Number.parseInt(formData.shipping_fee) || 0,
-          payment_status: formData.payment_status,
-          notes: formData.notes || null,
-          notes_internal: formData.notes_internal || null,
-        })
-        .eq("id", sale.id)
+      const formData = new FormData()
+      formData.append("shipping_fee", formData.shipping_fee)
+      formData.append("payment_status", formData.payment_status)
+      formData.append("notes", formData.notes)
+      formData.append("notes_internal", formData.notes_internal)
 
-      if (error) throw error
+      const result = await updateSale(sale.id, formData)
 
-      setOpen(false)
-      router.refresh()
+      if (result.success) {
+        setOpen(false)
+        router.refresh()
+      } else {
+        alert(result.error)
+      }
     } catch (error) {
       console.error("Error updating sale:", error)
       alert("Có lỗi xảy ra khi cập nhật đơn hàng")

@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
 import {
   Dialog,
@@ -18,23 +16,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus } from "lucide-react"
 import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
+import { createSale } from "@/lib/actions"
 import type { Purchase } from "@/lib/supabase"
 
 export function AddSaleModal() {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [purchases, setPurchases] = useState<Purchase[]>([])
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null)
-  const [formData, setFormData] = useState({
-    purchase_id: "",
-    quantity: "",
-    total_price: "",
-    payment_status: "unpaid" as "paid" | "unpaid" | "partial",
-    sale_date: new Date().toISOString().split("T")[0],
-    notes: "",
-  })
 
   useEffect(() => {
     if (open) {
@@ -60,78 +49,26 @@ export function AddSaleModal() {
   const handlePurchaseSelect = (purchaseId: string) => {
     const purchase = purchases.find((p) => p.id === purchaseId)
     setSelectedPurchase(purchase || null)
-    setFormData((prev) => ({
-      ...prev,
-      purchase_id: purchaseId,
-    }))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (formData: FormData) => {
     setLoading(true)
 
     try {
-      const quantity = Number.parseFloat(formData.quantity)
-      const totalPrice = Number.parseInt(formData.total_price)
-      const unitPrice = Math.round(totalPrice / quantity)
+      const result = await createSale(formData)
 
-      if (!selectedPurchase) {
-        throw new Error("Vui lòng chọn sản phẩm")
+      if (result.success) {
+        setSelectedPurchase(null)
+        setOpen(false)
+      } else {
+        alert(result.error)
       }
-
-      if (quantity > selectedPurchase.remaining_quantity) {
-        throw new Error("Số lượng bán vượt quá số lượng tồn kho")
-      }
-
-      // Insert sale
-      const { error: saleError } = await supabase.from("sales").insert([
-        {
-          purchase_id: formData.purchase_id,
-          quantity: quantity,
-          unit_price: unitPrice,
-          total_revenue: totalPrice,
-          payment_status: formData.payment_status,
-          sale_date: formData.sale_date,
-          notes: formData.notes || null,
-        },
-      ])
-
-      if (saleError) throw saleError
-
-      // Update remaining quantity in purchases
-      const newRemainingQuantity = selectedPurchase.remaining_quantity - quantity
-      const { error: updateError } = await supabase
-        .from("purchases")
-        .update({ remaining_quantity: newRemainingQuantity })
-        .eq("id", formData.purchase_id)
-
-      if (updateError) throw updateError
-
-      // Reset form
-      setFormData({
-        purchase_id: "",
-        quantity: "",
-        total_price: "",
-        payment_status: "unpaid",
-        sale_date: new Date().toISOString().split("T")[0],
-        notes: "",
-      })
-      setSelectedPurchase(null)
-      setOpen(false)
-      router.refresh()
-    } catch (error: any) {
-      console.error("Error creating sale:", error)
-      alert(error.message || "Có lỗi xảy ra khi tạo đơn bán hàng")
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Có lỗi xảy ra")
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }))
   }
 
   return (
@@ -147,10 +84,10 @@ export function AddSaleModal() {
           <DialogTitle>Thêm đơn bán hàng</DialogTitle>
           <DialogDescription>Điền đầy đủ thông tin về đơn hàng bán ra</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form action={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="purchase_id">Chọn sản phẩm *</Label>
-            <Select onValueChange={handlePurchaseSelect} required>
+            <Select name="purchase_id" onValueChange={handlePurchaseSelect} required>
               <SelectTrigger>
                 <SelectValue placeholder="Chọn sản phẩm để bán" />
               </SelectTrigger>
@@ -183,8 +120,6 @@ export function AddSaleModal() {
                 name="quantity"
                 type="number"
                 step="0.01"
-                value={formData.quantity}
-                onChange={handleChange}
                 placeholder="0"
                 max={selectedPurchase?.remaining_quantity || undefined}
                 required
@@ -192,26 +127,13 @@ export function AddSaleModal() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="total_price">Tổng giá tiền (VNĐ) *</Label>
-              <Input
-                id="total_price"
-                name="total_price"
-                type="number"
-                value={formData.total_price}
-                onChange={handleChange}
-                placeholder="0"
-                required
-              />
+              <Input id="total_price" name="total_price" type="number" placeholder="0" required />
             </div>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="payment_status">Trạng thái thanh toán *</Label>
-            <Select
-              value={formData.payment_status}
-              onValueChange={(value: "paid" | "unpaid" | "partial") =>
-                setFormData((prev) => ({ ...prev, payment_status: value }))
-              }
-            >
+            <Select name="payment_status" defaultValue="unpaid">
               <SelectTrigger>
                 <SelectValue placeholder="Chọn trạng thái thanh toán" />
               </SelectTrigger>
@@ -223,45 +145,20 @@ export function AddSaleModal() {
             </Select>
           </div>
 
-          {formData.total_price && (
-            <div className="p-3 bg-green-50 rounded-lg">
-              <p className="font-medium text-green-800">
-                Tổng tiền: {Number.parseInt(formData.total_price).toLocaleString("vi-VN")}đ
-              </p>
-              {formData.quantity && (
-                <p className="text-sm text-green-700">
-                  Đơn giá TB:{" "}
-                  {(Number.parseInt(formData.total_price) / Number.parseFloat(formData.quantity)).toLocaleString(
-                    "vi-VN",
-                  )}
-                  đ/{selectedPurchase?.unit}
-                </p>
-              )}
-            </div>
-          )}
-
           <div className="space-y-2">
             <Label htmlFor="sale_date">Ngày bán *</Label>
             <Input
               id="sale_date"
               name="sale_date"
               type="date"
-              value={formData.sale_date}
-              onChange={handleChange}
+              defaultValue={new Date().toISOString().split("T")[0]}
               required
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="notes">Ghi chú</Label>
-            <Textarea
-              id="notes"
-              name="notes"
-              value={formData.notes}
-              onChange={handleChange}
-              placeholder="Ghi chú về đơn hàng..."
-              rows={2}
-            />
+            <Textarea id="notes" name="notes" placeholder="Ghi chú về đơn hàng..." rows={2} />
           </div>
 
           <div className="flex gap-4 pt-4">

@@ -3,8 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
+import { updateSalePaymentStatus } from "@/lib/actions"
 import type { Sale } from "@/lib/supabase"
 
 interface QuickPaymentToggleProps {
@@ -12,19 +11,17 @@ interface QuickPaymentToggleProps {
 }
 
 export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
 
   const togglePaymentStatus = async () => {
     setLoading(true)
     try {
       const newStatus = sale.payment_status === "paid" ? "unpaid" : "paid"
+      const result = await updateSalePaymentStatus(sale.id, newStatus)
 
-      const { error } = await supabase.from("sales").update({ payment_status: newStatus }).eq("id", sale.id)
-
-      if (error) throw error
-
-      router.refresh()
+      if (!result.success) {
+        alert(result.error)
+      }
     } catch (error) {
       console.error("Error updating payment status:", error)
       alert("Có lỗi xảy ra khi cập nhật trạng thái thanh toán")
