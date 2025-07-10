@@ -1,7 +1,24 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
+import { revalidatePath, revalidateTag } from "next/cache"
 import { supabase } from "./supabase"
+
+// Thêm function để force refresh tất cả
+export async function forceRefreshAll() {
+  // Revalidate tất cả paths
+  revalidatePath("/", "layout") // Revalidate toàn bộ layout
+  revalidatePath("/")
+  revalidatePath("/purchases")
+  revalidatePath("/sales")
+  revalidatePath("/inventory")
+  revalidatePath("/reports")
+  revalidatePath("/daily-report")
+
+  // Revalidate tags nếu có
+  revalidateTag("purchases")
+  revalidateTag("sales")
+  revalidateTag("expenses")
+}
 
 export async function createPurchase(formData: FormData) {
   try {
@@ -28,12 +45,8 @@ export async function createPurchase(formData: FormData) {
 
     if (error) throw error
 
-    // Revalidate all relevant pages
-    revalidatePath("/")
-    revalidatePath("/purchases")
-    revalidatePath("/inventory")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
@@ -87,7 +100,7 @@ export async function createSale(formData: FormData) {
         payment_status: paymentStatus,
         sale_date: saleDate,
         notes: notes || null,
-        shipping_fee: 0, // Default value
+        shipping_fee: 0,
       },
     ])
 
@@ -102,12 +115,8 @@ export async function createSale(formData: FormData) {
 
     if (updateError) throw updateError
 
-    // Revalidate all relevant pages
-    revalidatePath("/")
-    revalidatePath("/sales")
-    revalidatePath("/inventory")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
@@ -118,7 +127,6 @@ export async function createSale(formData: FormData) {
 
 export async function updateSalePaymentStatus(saleId: string, newStatus: string) {
   try {
-    // Validation
     if (!["paid", "unpaid", "partial"].includes(newStatus)) {
       throw new Error("Trạng thái thanh toán không hợp lệ")
     }
@@ -127,11 +135,8 @@ export async function updateSalePaymentStatus(saleId: string, newStatus: string)
 
     if (error) throw error
 
-    // Revalidate all relevant pages
-    revalidatePath("/")
-    revalidatePath("/sales")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
@@ -150,7 +155,6 @@ export async function updateSale(
   },
 ) {
   try {
-    // Validation
     const shippingFee = Number.parseInt(updateData.shipping_fee) || 0
     const paymentStatus = updateData.payment_status
 
@@ -170,11 +174,8 @@ export async function updateSale(
 
     if (error) throw error
 
-    // Revalidate all relevant pages
-    revalidatePath("/")
-    revalidatePath("/sales")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
@@ -192,7 +193,6 @@ export async function addExpense(
   },
 ) {
   try {
-    // Validation
     const amount = Number.parseInt(expenseData.amount)
     if (isNaN(amount)) {
       throw new Error("Số tiền không hợp lệ")
@@ -217,11 +217,8 @@ export async function addExpense(
 
     if (error) throw error
 
-    // Revalidate pages
-    revalidatePath("/")
-    revalidatePath("/sales")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
@@ -236,11 +233,8 @@ export async function deleteExpense(expenseId: string) {
 
     if (error) throw error
 
-    // Revalidate pages
-    revalidatePath("/")
-    revalidatePath("/sales")
-    revalidatePath("/reports")
-    revalidatePath("/daily-report")
+    // Force refresh tất cả
+    await forceRefreshAll()
 
     return { success: true }
   } catch (error: any) {
