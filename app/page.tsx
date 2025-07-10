@@ -9,22 +9,23 @@ import { EditSaleModal } from "@/components/edit-sale-modal"
 import { QuickPaymentToggle } from "@/components/quick-payment-toggle"
 import { RefreshButton } from "@/components/refresh-button"
 import type { Sale } from "@/lib/supabase"
-import { unstable_cache } from "next/cache"
 
-// Cache function với tags
-const getCachedDashboardData = unstable_cache(
-  async () => {
-    const today = new Date().toISOString().split("T")[0]
+// Force dynamic rendering - không cache
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
-    const [purchasesResult, salesResult, todayPurchasesResult, todaySalesResult, recentSalesResult] = await Promise.all(
-      [
-        supabase.from("purchases").select("*"),
-        supabase.from("sales").select("*"),
-        supabase.from("purchases").select("*").eq("purchase_date", today),
-        supabase.from("sales").select("*").eq("sale_date", today),
-        supabase
-          .from("sales")
-          .select(`
+// Đơn giản hóa function - không dùng unstable_cache
+async function getDashboardData() {
+  const today = new Date().toISOString().split("T")[0]
+
+  const [purchasesResult, salesResult, todayPurchasesResult, todaySalesResult, recentSalesResult] = await Promise.all([
+    supabase.from("purchases").select("*"),
+    supabase.from("sales").select("*"),
+    supabase.from("purchases").select("*").eq("purchase_date", today),
+    supabase.from("sales").select("*").eq("sale_date", today),
+    supabase
+      .from("sales")
+      .select(`
         *,
         purchases (
           product_name,
@@ -37,67 +38,56 @@ const getCachedDashboardData = unstable_cache(
           amount
         )
       `)
-          .order("sale_date", { ascending: false })
-          .limit(15),
-      ],
-    )
+      .order("sale_date", { ascending: false })
+      .limit(15),
+  ])
 
-    const purchases = purchasesResult.data || []
-    const sales = salesResult.data || []
-    const todayPurchases = todayPurchasesResult.data || []
-    const todaySales = todaySalesResult.data || []
-    const recentSales = recentSalesResult.data || []
+  const purchases = purchasesResult.data || []
+  const sales = salesResult.data || []
+  const todayPurchases = todayPurchasesResult.data || []
+  const todaySales = todaySalesResult.data || []
+  const recentSales = recentSalesResult.data || []
 
-    // Tính toán doanh thu thực (bao gồm phí ship và chi phí khác)
-    const calculateActualRevenue = (sale: any) => {
-      const expensesTotal = (sale.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
-      return sale.total_revenue + (sale.shipping_fee || 0) + expensesTotal
+  // Tính toán doanh thu thực (bao gồm phí ship và chi phí khác)
+  const calculateActualRevenue = (sale: any) => {
+    const expensesTotal = (sale.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+    return sale.total_revenue + (sale.shipping_fee || 0) + expensesTotal
+  }
+
+  const totalPurchaseCost = purchases.reduce((sum, p) => sum + p.total_cost, 0)
+  const totalActualRevenue = sales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
+  const todayPurchaseCost = todayPurchases.reduce((sum, p) => sum + p.total_cost, 0)
+  const todayActualRevenue = todaySales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
+
+  // Group recent sales by date
+  const salesByDate = recentSales.reduce((acc: { [key: string]: Sale[] }, sale) => {
+    const date = sale.sale_date
+    if (!acc[date]) {
+      acc[date] = []
     }
+    acc[date].push(sale)
+    return acc
+  }, {})
 
-    const totalPurchaseCost = purchases.reduce((sum, p) => sum + p.total_cost, 0)
-    const totalActualRevenue = sales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
-    const todayPurchaseCost = todayPurchases.reduce((sum, p) => sum + p.total_cost, 0)
-    const todayActualRevenue = todaySales.reduce((sum, s) => sum + calculateActualRevenue(s), 0)
+  const sortedDates = Object.keys(salesByDate)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    .slice(0, 5)
 
-    // Group recent sales by date
-    const salesByDate = recentSales.reduce((acc: { [key: string]: Sale[] }, sale) => {
-      const date = sale.sale_date
-      if (!acc[date]) {
-        acc[date] = []
-      }
-      acc[date].push(sale)
-      return acc
-    }, {})
-
-    const sortedDates = Object.keys(salesByDate)
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-      .slice(0, 5)
-
-    return {
-      totalPurchaseCost,
-      totalActualRevenue,
-      totalProducts: purchases.length,
-      totalSales: sales.length,
-      profit: totalActualRevenue - totalPurchaseCost,
-      todayPurchaseCost,
-      todayActualRevenue,
-      todayPurchases: todayPurchases.length,
-      todaySales: todaySales.length,
-      todayProfit: todayActualRevenue - todayPurchaseCost,
-      salesByDate,
-      sortedDates,
-      calculateActualRevenue,
-    }
-  },
-  ["dashboard-data"],
-  {
-    tags: ["purchases", "sales", "expenses"],
-    revalidate: 0, // Không cache, luôn fresh
-  },
-)
-
-async function getDashboardData() {
-  return getCachedDashboardData()
+  return {
+    totalPurchaseCost,
+    totalActualRevenue,
+    totalProducts: purchases.length,
+    totalSales: sales.length,
+    profit: totalActualRevenue - totalPurchaseCost,
+    todayPurchaseCost,
+    todayActualRevenue,
+    todayPurchases: todayPurchases.length,
+    todaySales: todaySales.length,
+    todayProfit: todayActualRevenue - todayPurchaseCost,
+    salesByDate,
+    sortedDates,
+    calculateActualRevenue,
+  }
 }
 
 export default async function Dashboard() {

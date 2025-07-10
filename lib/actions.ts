@@ -1,6 +1,6 @@
 "use server"
 
-import { revalidatePath, revalidateTag } from "next/cache"
+import { revalidatePath } from "next/cache"
 import { supabase } from "./supabase"
 
 // Thêm function để force refresh tất cả
@@ -13,11 +13,6 @@ export async function forceRefreshAll() {
   revalidatePath("/inventory")
   revalidatePath("/reports")
   revalidatePath("/daily-report")
-
-  // Revalidate tags nếu có
-  revalidateTag("purchases")
-  revalidateTag("sales")
-  revalidateTag("expenses")
 }
 
 export async function createPurchase(formData: FormData) {
