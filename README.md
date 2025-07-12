@@ -41,7 +41,7 @@ Hệ thống quản lý kho hàng hiện đại được xây dựng với Next.
 ## 📋 Yêu cầu hệ thống
 
 - Node.js 18+ 
-- pnpm hoặc npm
+- npm
 - Tài khoản Supabase
 
 ## ⚡ Cài đặt và chạy
@@ -54,8 +54,6 @@ cd manager
 
 ### 2. Cài đặt dependencies
 ```bash
-pnpm install
-# hoặc
 npm install
 ```
 
@@ -84,8 +82,6 @@ psql -d your_database -f scripts/add-secure-policies.sql
 
 ### 5. Chạy ứng dụng
 ```bash
-pnpm dev
-# hoặc
 npm run dev
 ```
 
@@ -145,10 +141,10 @@ manager/
 ## 🔧 Scripts có sẵn
 
 ```bash
-pnpm dev          # Chạy development server
-pnpm build        # Build production
-pnpm start        # Chạy production server
-pnpm lint         # Kiểm tra code style
+npm run dev       # Chạy development server
+npm run build     # Build production
+npm run start     # Chạy production server
+npm run lint      # Kiểm tra code style
 ```
 
 ## 🤝 Đóng góp
