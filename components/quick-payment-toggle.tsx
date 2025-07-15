@@ -3,23 +3,33 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { updateSalePaymentStatus } from "@/lib/actions"
+import { updateSalePaymentStatus, updateOrderPaymentStatus } from "@/lib/actions"
 import { useToast } from "@/hooks/use-toast"
 import type { Sale } from "@/lib/supabase"
 
 interface QuickPaymentToggleProps {
-  sale: Sale
+  order: any // Có thể là sale (cũ) hoặc order (mới)
 }
 
-export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
+export function QuickPaymentToggle({ order }: QuickPaymentToggleProps) {
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
+
+  // Kiểm tra xem đây là đơn hàng cũ hay mới
+  const isNewOrder = order.is_new_order === true
 
   const togglePaymentStatus = async () => {
     setLoading(true)
     try {
-      const newStatus = sale.payment_status === "paid" ? "unpaid" : "paid"
-      const result = await updateSalePaymentStatus(sale.id, newStatus)
+      const currentStatus = order.payment_status
+      const newStatus = currentStatus === "paid" ? "unpaid" : "paid"
+      
+      let result
+      if (isNewOrder) {
+        result = await updateOrderPaymentStatus(order.id, newStatus)
+      } else {
+        result = await updateSalePaymentStatus(order.id, newStatus)
+      }
 
       if (result.success) {
         toast({
@@ -51,7 +61,9 @@ export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
   }
 
   const getStatusDisplay = () => {
-    switch (sale.payment_status) {
+    const paymentStatus = order.payment_status
+    
+    switch (paymentStatus) {
       case "paid":
         return {
           text: "✅ Đã TT",
@@ -74,8 +86,18 @@ export function QuickPaymentToggle({ sale }: QuickPaymentToggleProps) {
   const status = getStatusDisplay()
 
   return (
-    <Button variant="ghost" size="sm" onClick={togglePaymentStatus} disabled={loading} className="p-1 h-auto">
-      <Badge variant={status.variant} className={`text-xs cursor-pointer hover:opacity-80 ${status.bgColor}`}>
+    <Button 
+      variant="ghost" 
+      size="sm" 
+      onClick={togglePaymentStatus} 
+      disabled={loading} 
+      className="p-1 h-auto"
+      title="Click để thay đổi trạng thái thanh toán"
+    >
+      <Badge 
+        variant={status.variant} 
+        className={`text-xs cursor-pointer hover:opacity-80 ${status.bgColor}`}
+      >
         {loading ? "..." : status.text}
       </Badge>
     </Button>

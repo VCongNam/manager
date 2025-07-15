@@ -24,6 +24,7 @@ import { QuickPaymentToggle } from "@/components/quick-payment-toggle";
 import { RefreshButton } from "@/components/refresh-button";
 import type { Sale } from "@/lib/supabase";
 import { DailyExpenseModal } from "@/components/daily-expense-modal";
+import { getAllOrders, getCombinedStats } from "@/lib/actions";
 
 // Force dynamic rendering - không cache
 export const dynamic = "force-dynamic";
@@ -34,60 +35,45 @@ async function getDashboardData() {
 
   const [
     purchasesResult,
-    salesResult,
     todayPurchasesResult,
-    todaySalesResult,
-    recentSalesResult,
+    recentOrdersResult,
     dailyExpensesResult,
     todayExpensesResult,
+    combinedStatsResult,
   ] = await Promise.all([
     supabase.from("purchases").select("*"),
-    supabase.from("sales").select("*"),
     supabase.from("purchases").select("*").eq("purchase_date", today),
-    supabase.from("sales").select("*").eq("sale_date", today),
-    supabase
-      .from("sales")
-      .select(
-        `
-        *,
-        purchases (
-          product_name,
-          unit
-        ),
-        expenses (
-          id,
-          expense_type,
-          description,
-          amount
-        )
-      `
-      )
-      .order("sale_date", { ascending: false })
-      .limit(15),
+    getAllOrders(),
     supabase.from("daily_expenses").select("*"),
     supabase.from("daily_expenses").select("*").eq("expense_date", today),
+    getCombinedStats(),
   ]);
 
   const purchases = purchasesResult.data || [];
-  const sales = salesResult.data || [];
   const todayPurchases = todayPurchasesResult.data || [];
-  const todaySales = todaySalesResult.data || [];
-  const recentSales = recentSalesResult.data || [];
+  const recentOrders = recentOrdersResult.data || [];
   const dailyExpenses = dailyExpensesResult.data || [];
   const todayExpenses = todayExpensesResult.data || [];
+  const combinedStats = combinedStatsResult;
 
   // Tính toán doanh thu thực (bao gồm phí ship và chi phí khác)
-  const calculateActualRevenue = (sale: any) => {
-    const expensesTotal = (sale.expenses || []).reduce(
-      (sum: number, exp: any) => sum + exp.amount,
-      0
-    );
-    return sale.total_revenue + (sale.shipping_fee || 0) + expensesTotal;
+  const calculateActualRevenue = (order: any) => {
+    if (order.is_new_order) {
+      // Đơn hàng mới: tổng từ order_items + shipping_fee
+      return order.total_revenue + (order.shipping_fee || 0);
+    } else {
+      // Đơn hàng cũ: total_revenue + shipping_fee + expenses
+      const expensesTotal = (order.expenses || []).reduce(
+        (sum: number, exp: any) => sum + exp.amount,
+        0
+      );
+      return order.total_revenue + (order.shipping_fee || 0) + expensesTotal;
+    }
   };
 
   const totalPurchaseCost = purchases.reduce((sum, p) => sum + p.total_cost, 0);
-  const totalActualRevenue = sales.reduce(
-    (sum, s) => sum + calculateActualRevenue(s),
+  const totalActualRevenue = recentOrders.reduce(
+    (sum, order) => sum + calculateActualRevenue(order),
     0
   );
   const totalDailyExpenses = dailyExpenses.reduce(
@@ -99,29 +85,33 @@ async function getDashboardData() {
     (sum, p) => sum + p.total_cost,
     0
   );
-  const todayActualRevenue = todaySales.reduce(
-    (sum, s) => sum + calculateActualRevenue(s),
+  
+  // Lọc đơn hàng hôm nay
+  const todayOrders = recentOrders.filter(order => order.sale_date === today);
+  const todayActualRevenue = todayOrders.reduce(
+    (sum, order) => sum + calculateActualRevenue(order),
     0
   );
+  
   const todayDailyExpenses = todayExpenses.reduce(
     (sum, e) => sum + e.amount,
     0
   );
 
-  // Group recent sales by date
-  const salesByDate = recentSales.reduce(
-    (acc: { [key: string]: Sale[] }, sale) => {
-      const date = sale.sale_date;
+  // Group recent orders by date
+  const ordersByDate = recentOrders.reduce(
+    (acc: { [key: string]: any[] }, order) => {
+      const date = order.sale_date;
       if (!acc[date]) {
         acc[date] = [];
       }
-      acc[date].push(sale);
+      acc[date].push(order);
       return acc;
     },
     {}
   );
 
-  const sortedDates = Object.keys(salesByDate)
+  const sortedDates = Object.keys(ordersByDate)
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
     .slice(0, 5);
 
@@ -130,20 +120,23 @@ async function getDashboardData() {
     totalActualRevenue,
     totalDailyExpenses,
     totalProducts: purchases.length,
-    totalSales: sales.length,
+    totalSales: combinedStats.totalSales,
+    totalOrders: combinedStats.totalOrders,
     profit: totalActualRevenue - totalPurchaseCost,
     realProfit: totalActualRevenue - totalPurchaseCost - totalDailyExpenses,
     todayPurchaseCost,
     todayActualRevenue,
     todayDailyExpenses,
     todayPurchases: todayPurchases.length,
-    todaySales: todaySales.length,
+    todaySales: combinedStats.todaySales,
+    todayOrders: combinedStats.todayOrders,
     todayProfit: todayActualRevenue - todayPurchaseCost,
     todayRealProfit:
       todayActualRevenue - todayPurchaseCost - todayDailyExpenses,
-    salesByDate,
+    ordersByDate,
     sortedDates,
     calculateActualRevenue,
+    recentOrders: recentOrders.slice(0, 15), // Lấy 15 đơn hàng gần nhất
   };
 }
 
@@ -207,7 +200,7 @@ export default async function Dashboard() {
                 {data.todayActualRevenue.toLocaleString("vi-VN")}đ
               </div>
               <p className="text-xs text-green-600">
-                {data.todaySales} đơn bán
+                {data.todayOrders} đơn bán
               </p>
             </CardContent>
           </Card>
@@ -244,7 +237,7 @@ export default async function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-orange-800">
-                {data.todayPurchases + data.todaySales}
+                {data.todayPurchases + data.todayOrders}
               </div>
               <p className="text-xs text-orange-600">giao dịch hôm nay</p>
             </CardContent>
@@ -285,7 +278,7 @@ export default async function Dashboard() {
                 {data.totalActualRevenue.toLocaleString("vi-VN")}đ
               </div>
               <p className="text-xs text-muted-foreground">
-                {data.totalSales} đơn bán
+                {data.totalOrders} đơn bán
               </p>
             </CardContent>
           </Card>
@@ -369,15 +362,15 @@ export default async function Dashboard() {
           <CardContent>
             <div className="space-y-4">
               {data.sortedDates.map((date) => {
-                const dailySales = data.salesByDate[date];
-                const dailyActualRevenue = dailySales.reduce(
-                  (sum, sale) => sum + data.calculateActualRevenue(sale),
+                const dailyOrders = data.ordersByDate[date];
+                const dailyActualRevenue = dailyOrders.reduce(
+                  (sum, order) => sum + data.calculateActualRevenue(order),
                   0
                 );
-                const paidAmount = dailySales
-                  .filter((sale) => sale.payment_status === "paid")
+                const paidAmount = dailyOrders
+                  .filter((order) => order.payment_status === "paid")
                   .reduce(
-                    (sum, sale) => sum + data.calculateActualRevenue(sale),
+                    (sum, order) => sum + data.calculateActualRevenue(order),
                     0
                   );
 
@@ -394,7 +387,7 @@ export default async function Dashboard() {
                           })}
                         </h4>
                         <p className="text-sm text-muted-foreground">
-                          {dailySales.length} đơn •{" "}
+                          {dailyOrders.length} đơn •{" "}
                           {dailyActualRevenue.toLocaleString("vi-VN")}đ
                         </p>
                       </div>
@@ -415,24 +408,24 @@ export default async function Dashboard() {
                     </div>
 
                     <div className="space-y-2">
-                      {dailySales.map((sale) => {
-                        const actualRevenue = data.calculateActualRevenue(sale);
+                      {dailyOrders.map((order) => {
+                        const actualRevenue = data.calculateActualRevenue(order);
                         const hasExtras =
-                          (sale.shipping_fee || 0) !== 0 ||
-                          (sale.expenses || []).length > 0;
+                          (order.shipping_fee || 0) !== 0 ||
+                          (order.expenses || []).length > 0;
 
                         return (
                           <div
-                            key={sale.id}
+                            key={order.id}
                             className="flex justify-between items-center text-sm p-2 bg-muted/50 rounded"
                           >
                             <div className="flex-1">
                               <span className="font-medium">
-                                {sale.purchases?.product_name || "N/A"}
+                                {order.purchases?.product_name || "N/A"}
                               </span>
-                              {sale.customer_name && (
+                              {order.customer_name && (
                                 <span className="ml-2 text-xs text-blue-600">
-                                  ({sale.customer_name})
+                                  ({order.customer_name})
                                 </span>
                               )}
                               {hasExtras && (
@@ -446,25 +439,25 @@ export default async function Dashboard() {
                                 <div>
                                   {actualRevenue.toLocaleString("vi-VN")}đ
                                 </div>
-                                {actualRevenue !== sale.total_revenue && (
+                                {actualRevenue !== order.total_revenue && (
                                   <div className="text-xs text-muted-foreground">
                                     (gốc:{" "}
-                                    {sale.total_revenue.toLocaleString("vi-VN")}
+                                    {order.total_revenue.toLocaleString("vi-VN")}
                                     đ)
                                   </div>
                                 )}
-                                {(sale.amount_remaining || 0) > 0 && (
+                                {(order.amount_remaining || 0) > 0 && (
                                   <div className="text-xs text-red-600">
                                     Còn:{" "}
                                     {(
-                                      sale.amount_remaining || 0
+                                      order.amount_remaining || 0
                                     ).toLocaleString("vi-VN")}
                                     đ
                                   </div>
                                 )}
                               </div>
-                              <QuickPaymentToggle sale={sale} />
-                              <EditSaleModal sale={sale}>
+                              <QuickPaymentToggle order={order} />
+                              <EditSaleModal order={order}>
                                 <Button
                                   variant="ghost"
                                   size="sm"

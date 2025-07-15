@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase"
 import { DayPicker } from "react-day-picker"
 import "react-day-picker/dist/style.css"
 import { Skeleton } from "@/components/ui/skeleton"
+import { getOrdersByDate } from "@/lib/actions"
 
 function getPaymentStatusBadge(status: string) {
   switch (status) {
@@ -25,9 +26,17 @@ function getPaymentStatusBadge(status: string) {
   }
 }
 
+function getOrderTypeBadge(isNewOrder: boolean) {
+  if (isNewOrder) {
+    return <Badge className="bg-blue-100 text-blue-800 border-blue-200">🆕 Đơn mới</Badge>
+  } else {
+    return <Badge className="bg-gray-100 text-gray-800 border-gray-200">📋 Đơn cũ</Badge>
+  }
+}
+
 export default function SalesByDatePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-  const [sales, setSales] = useState<any[]>([])
+  const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [stats, setStats] = useState({
@@ -43,14 +52,17 @@ export default function SalesByDatePage() {
   // Fetch available dates for calendar highlighting
   useEffect(() => {
     const fetchAvailableDates = async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("sale_date")
-        .order("sale_date", { ascending: false })
+      // Lấy dates từ cả sales và orders
+      const [salesResult, ordersResult] = await Promise.all([
+        supabase.from("sales").select("sale_date").order("sale_date", { ascending: false }),
+        supabase.from("orders").select("sale_date").order("sale_date", { ascending: false })
+      ])
       
-      if (!error && data) {
-        const dates = [...new Set(data.map(s => s.sale_date))]
-        setAvailableDates(dates)
+      if (!salesResult.error && !ordersResult.error) {
+        const salesDates = salesResult.data?.map(s => s.sale_date) || []
+        const ordersDates = ordersResult.data?.map(o => o.sale_date) || []
+        const allDates = [...new Set([...salesDates, ...ordersDates])]
+        setAvailableDates(allDates)
       }
     }
     fetchAvailableDates()
@@ -58,47 +70,71 @@ export default function SalesByDatePage() {
 
   useEffect(() => {
     if (!selectedDate) return
-    const fetchSales = async () => {
+    const fetchOrders = async () => {
       setLoading(true)
       const year = selectedDate.getFullYear()
       const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
       const day = String(selectedDate.getDate()).padStart(2, '0')
       const dateStr = `${year}-${month}-${day}`
       
-      const { data, error } = await supabase
-        .from("sales")
-        .select(`*, purchases ( product_name, unit )`)
-        .eq("sale_date", dateStr)
-        .order("created_at", { ascending: false })
+      const result = await getOrdersByDate(dateStr)
       
-      if (error) {
-        console.error('Error fetching sales:', error)
-      }
-      
-      setSales(data || [])
-      
-      // Calculate stats
-      if (data) {
-        const totalRevenue = data.reduce((sum, sale) => sum + sale.total_revenue, 0)
-        const paidAmount = data.filter(sale => sale.payment_status === "paid").reduce((sum, sale) => sum + sale.total_revenue, 0)
-        const unpaidAmount = data.filter(sale => sale.payment_status === "unpaid").reduce((sum, sale) => sum + sale.total_revenue, 0)
-        const partialAmount = data.filter(sale => sale.payment_status === "partial").reduce((sum, sale) => sum + sale.total_revenue, 0)
-        const uniqueCustomers = new Set(data.filter(sale => sale.customer_name).map(sale => sale.customer_name)).size
+      if (result.success) {
+        setOrders(result.data || [])
+        
+        // Calculate stats
+        const totalRevenue = result.data.reduce((sum, order) => {
+          if (order.is_new_order) {
+            return sum + order.total_revenue + (order.shipping_fee || 0)
+          } else {
+            const expensesTotal = (order.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+            return sum + order.total_revenue + (order.shipping_fee || 0) + expensesTotal
+          }
+        }, 0)
+        
+        const paidAmount = result.data.filter(order => order.payment_status === "paid").reduce((sum, order) => {
+          if (order.is_new_order) {
+            return sum + order.total_revenue + (order.shipping_fee || 0)
+          } else {
+            const expensesTotal = (order.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+            return sum + order.total_revenue + (order.shipping_fee || 0) + expensesTotal
+          }
+        }, 0)
+        
+        const unpaidAmount = result.data.filter(order => order.payment_status === "unpaid").reduce((sum, order) => {
+          if (order.is_new_order) {
+            return sum + order.total_revenue + (order.shipping_fee || 0)
+          } else {
+            const expensesTotal = (order.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+            return sum + order.total_revenue + (order.shipping_fee || 0) + expensesTotal
+          }
+        }, 0)
+        
+        const partialAmount = result.data.filter(order => order.payment_status === "partial").reduce((sum, order) => {
+          if (order.is_new_order) {
+            return sum + order.total_revenue + (order.shipping_fee || 0)
+          } else {
+            const expensesTotal = (order.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+            return sum + order.total_revenue + (order.shipping_fee || 0) + expensesTotal
+          }
+        }, 0)
+        
+        const uniqueCustomers = new Set(result.data.filter(order => order.customer_name).map(order => order.customer_name)).size
         
         setStats({
           totalRevenue,
           paidAmount,
           unpaidAmount,
           partialAmount,
-          totalOrders: data.length,
+          totalOrders: result.data.length,
           uniqueCustomers,
-          avgOrderValue: data.length > 0 ? Math.round(totalRevenue / data.length) : 0
+          avgOrderValue: result.data.length > 0 ? Math.round(totalRevenue / result.data.length) : 0
         })
       }
       
       setLoading(false)
     }
-    fetchSales()
+    fetchOrders()
   }, [selectedDate])
 
   const getPreviousDay = () => {
@@ -201,73 +237,64 @@ export default function SalesByDatePage() {
                     }
                   }}
                 />
-                
-                <div className="text-xs text-muted-foreground text-center">
-                  <div className="w-3 h-3 bg-green-500 rounded-full inline-block mr-1"></div>
-                  Có dữ liệu bán hàng
-                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Cột danh sách đơn hàng */}
+        {/* Cột thống kê và danh sách */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Thống kê tổng quan */}
+          {/* Thống kê */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-2">
-                  <DollarSign className="h-4 w-4 text-green-600" />
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Doanh thu</p>
-                    <p className="text-lg font-bold">
-                      {loading ? <Skeleton className="h-6 w-20" /> : `${stats.totalRevenue.toLocaleString("vi-VN")}đ`}
-                    </p>
-                  </div>
-                </div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Tổng doanh thu</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.totalRevenue.toLocaleString("vi-VN")}đ</div>
+                <p className="text-xs text-muted-foreground">
+                  {stats.totalOrders} đơn hàng
+                </p>
               </CardContent>
             </Card>
-            
+
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-2">
-                  <TrendingUp className="h-4 w-4 text-blue-600" />
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Đã thu</p>
-                    <p className="text-lg font-bold text-green-600">
-                      {loading ? <Skeleton className="h-6 w-20" /> : `${stats.paidAmount.toLocaleString("vi-VN")}đ`}
-                    </p>
-                  </div>
-                </div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Đã thanh toán</CardTitle>
+                <TrendingUp className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">{stats.paidAmount.toLocaleString("vi-VN")}đ</div>
+                <p className="text-xs text-muted-foreground">
+                  {stats.totalOrders > 0 ? Math.round((stats.paidAmount / stats.totalRevenue) * 100) : 0}% tổng
+                </p>
               </CardContent>
             </Card>
-            
+
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-2">
-                  <TrendingDown className="h-4 w-4 text-red-600" />
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Chưa thu</p>
-                    <p className="text-lg font-bold text-red-600">
-                      {loading ? <Skeleton className="h-6 w-20" /> : `${stats.unpaidAmount.toLocaleString("vi-VN")}đ`}
-                    </p>
-                  </div>
-                </div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Chưa thanh toán</CardTitle>
+                <TrendingDown className="h-4 w-4 text-red-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{stats.unpaidAmount.toLocaleString("vi-VN")}đ</div>
+                <p className="text-xs text-muted-foreground">
+                  {stats.totalOrders > 0 ? Math.round((stats.unpaidAmount / stats.totalRevenue) * 100) : 0}% tổng
+                </p>
               </CardContent>
             </Card>
-            
+
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-2">
-                  <Users className="h-4 w-4 text-purple-600" />
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Đơn hàng</p>
-                    <p className="text-lg font-bold">
-                      {loading ? <Skeleton className="h-6 w-8" /> : stats.totalOrders}
-                    </p>
-                  </div>
-                </div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Khách hàng</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.uniqueCustomers}</div>
+                <p className="text-xs text-muted-foreground">
+                  Trung bình: {stats.avgOrderValue.toLocaleString("vi-VN")}đ/đơn
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -275,74 +302,106 @@ export default function SalesByDatePage() {
           {/* Danh sách đơn hàng */}
           <Card>
             <CardHeader>
-              <div className="flex justify-between items-center">
-                <div>
-                  <CardTitle className="text-lg">
-                    📅 {selectedDate.toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-                  </CardTitle>
-                  <CardDescription>
-                    {stats.totalOrders} đơn hàng - Trung bình: {stats.avgOrderValue.toLocaleString("vi-VN")}đ/đơn
-                  </CardDescription>
-                </div>
-                <div className="text-right text-sm space-y-1">
-                  <div className="text-green-600">Đã thu: {stats.paidAmount.toLocaleString("vi-VN")}đ</div>
-                  {stats.unpaidAmount > 0 && (
-                    <div className="text-red-600">Chưa thu: {stats.unpaidAmount.toLocaleString("vi-VN")}đ</div>
-                  )}
-                  {stats.partialAmount > 0 && (
-                    <div className="text-yellow-600">Thanh toán một phần: {stats.partialAmount.toLocaleString("vi-VN")}đ</div>
-                  )}
-                </div>
-              </div>
+              <CardTitle>Đơn hàng ngày {selectedDate.toLocaleDateString("vi-VN")}</CardTitle>
+              <CardDescription>
+                {loading ? "Đang tải..." : `${stats.totalOrders} đơn hàng (bao gồm đơn hàng cũ và mới)`}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="space-y-4">
-                  {[...Array(3)].map((_, i) => (
+                  {[...Array(5)].map((_, i) => (
                     <div key={i} className="flex items-center space-x-4">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-4 w-20" />
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="h-4 w-28" />
-                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-12 w-12" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-[250px]" />
+                        <Skeleton className="h-4 w-[200px]" />
+                      </div>
                     </div>
                   ))}
                 </div>
-              ) : sales.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>Không có đơn hàng nào cho ngày này</p>
-                  <Link href="/sales/new">
-                    <Button className="mt-4">Tạo đơn hàng đầu tiên</Button>
-                  </Link>
-                </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Sản phẩm</TableHead>
-                      <TableHead>Khách hàng</TableHead>
-                      <TableHead>Số lượng</TableHead>
-                      <TableHead>Tổng tiền</TableHead>
-                      <TableHead>Trạng thái TT</TableHead>
-                      <TableHead>Ghi chú</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sales.map((sale) => (
-                      <TableRow key={sale.id}>
-                        <TableCell className="font-medium">{sale.purchases?.product_name || "N/A"}</TableCell>
-                        <TableCell>{sale.customer_name || "-"}</TableCell>
-                        <TableCell>
-                          {sale.quantity} {sale.purchases?.unit || ""}
-                        </TableCell>
-                        <TableCell className="font-medium">{sale.total_revenue.toLocaleString("vi-VN")}đ</TableCell>
-                        <TableCell>{getPaymentStatusBadge(sale.payment_status)}</TableCell>
-                        <TableCell className="max-w-xs truncate">{sale.notes || "-"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="space-y-4">
+                  {orders.map((order) => {
+                    const actualRevenue = order.is_new_order 
+                      ? order.total_revenue + (order.shipping_fee || 0)
+                      : order.total_revenue + (order.shipping_fee || 0) + (order.expenses || []).reduce((sum: number, exp: any) => sum + exp.amount, 0)
+                    
+                    const hasExtras = (order.shipping_fee || 0) !== 0 || (order.expenses || []).length > 0
+
+                    return (
+                      <div
+                        key={order.id}
+                        className="flex justify-between items-center p-4 border rounded-lg hover:bg-muted/50"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            {getOrderTypeBadge(order.is_new_order)}
+                            <span className="font-medium">
+                              {order.is_new_order ? (
+                                <div>
+                                  <div>{order.purchases?.product_name || "N/A"}</div>
+                                  {order.total_items > 1 && (
+                                    <div className="text-xs text-blue-600">
+                                      +{order.total_items - 1} sản phẩm khác
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div>
+                                  {order.purchases?.product_name || "N/A"}
+                                  {hasExtras && <span className="ml-2 text-xs text-blue-600">(có phí/chi phí)</span>}
+                                </div>
+                              )}
+                            </span>
+                          </div>
+                          
+                          <div className="text-sm text-muted-foreground">
+                            {order.customer_name && <span>Khách: {order.customer_name} • </span>}
+                            <span>
+                              {order.is_new_order ? (
+                                <div>
+                                  <div>{order.order_items[0]?.quantity} {order.order_items[0]?.purchases?.unit || ""}</div>
+                                  {order.total_items > 1 && (
+                                    <div className="text-xs">
+                                      Tổng: {order.order_items.reduce((sum, item) => sum + item.quantity, 0)} sản phẩm
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div>
+                                  {order.quantity} {order.purchases?.unit || ""}
+                                </div>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-medium">
+                            {actualRevenue.toLocaleString("vi-VN")}đ
+                          </div>
+                          {actualRevenue !== order.total_revenue && (
+                            <div className="text-xs text-muted-foreground">
+                              (gốc: {order.total_revenue.toLocaleString("vi-VN")}đ)
+                            </div>
+                          )}
+                          {(order.amount_remaining || 0) > 0 && (
+                            <div className="text-xs text-red-600">
+                              Còn: {(order.amount_remaining || 0).toLocaleString("vi-VN")}đ
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {orders.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>Không có đơn hàng nào trong ngày này</p>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
