@@ -591,14 +591,27 @@ export async function deleteSale(saleId: string) {
 
 export async function updateSalePaymentStatus(saleId: string, newStatus: string) {
   try {
-    if (!["paid", "unpaid", "partial"].includes(newStatus)) {
-      throw new Error("Trạng thái thanh toán không hợp lệ")
+    let updateFields: any = { payment_status: newStatus }
+    if (newStatus === "paid") {
+      // Lấy tổng tiền đơn hàng
+      const { data: sale, error } = await supabase
+        .from("sales")
+        .select("total_revenue, shipping_fee, expenses(amount)")
+        .eq("id", saleId)
+        .single()
+      if (error || !sale) throw error || new Error("Không tìm thấy đơn hàng")
+      const expensesTotal = (sale.expenses || []).reduce((sum: number, exp: any) => sum + (exp.amount || 0), 0)
+      const totalAmount = (sale.total_revenue || 0) + (sale.shipping_fee || 0) + expensesTotal
+      updateFields.amount_paid = totalAmount
+      updateFields.amount_remaining = 0
+    } else if (newStatus === "unpaid") {
+      updateFields.amount_paid = 0
     }
-
-    const { error } = await supabase.from("sales").update({ payment_status: newStatus }).eq("id", saleId)
-
+    const { error } = await supabase
+      .from("sales")
+      .update(updateFields)
+      .eq("id", saleId)
     if (error) throw error
-
     await forceRefreshAll()
     return { success: true }
   } catch (error: any) {
@@ -609,13 +622,27 @@ export async function updateSalePaymentStatus(saleId: string, newStatus: string)
 
 export async function updateOrderPaymentStatus(orderId: string, newStatus: string) {
   try {
+    let updateFields: any = { payment_status: newStatus }
+    if (newStatus === "paid") {
+      // Lấy tổng tiền đơn hàng
+      const { data: order, error } = await supabase
+        .from("orders")
+        .select("amount_paid, shipping_fee, order_items(total_price)")
+        .eq("id", orderId)
+        .single()
+      if (error || !order) throw error || new Error("Không tìm thấy đơn hàng")
+      const totalOrderPrice = (order.order_items || []).reduce((sum: number, item: any) => sum + (item.total_price || 0), 0)
+      const totalAmount = totalOrderPrice + (order.shipping_fee || 0)
+      updateFields.amount_paid = totalAmount
+      updateFields.amount_remaining = 0
+    } else if (newStatus === "unpaid") {
+      updateFields.amount_paid = 0
+    }
     const { error } = await supabase
       .from("orders")
-      .update({ payment_status: newStatus })
+      .update(updateFields)
       .eq("id", orderId)
-
     if (error) throw error
-
     await forceRefreshAll()
     return { success: true }
   } catch (error: any) {
@@ -763,11 +790,13 @@ export async function getAllOrders() {
       .select(`
         *,
         order_items (
+          purchase_id,
           quantity,
           unit_price,
           total_price,
           notes,
           purchases (
+            id,
             product_name,
             unit
           )
@@ -858,11 +887,13 @@ export async function getOrdersByDate(date: string) {
       .select(`
         *,
         order_items (
+          purchase_id,
           quantity,
           unit_price,
           total_price,
           notes,
           purchases (
+            id,
             product_name,
             unit
           )

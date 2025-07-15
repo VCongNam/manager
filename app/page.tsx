@@ -111,9 +111,8 @@ async function getDashboardData() {
     {}
   );
 
-  const sortedDates = Object.keys(ordersByDate)
-    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-    .slice(0, 5);
+  // Chỉ lấy ngày hôm nay nếu có đơn
+  const sortedDates = ordersByDate[today] ? [today] : [];
 
   return {
     totalPurchaseCost,
@@ -357,7 +356,7 @@ export default async function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Bán hàng gần đây theo ngày</CardTitle>
-            <CardDescription>5 ngày gần nhất có giao dịch</CardDescription>
+           
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -420,9 +419,17 @@ export default async function Dashboard() {
                             className="flex justify-between items-center text-sm p-2 bg-muted/50 rounded"
                           >
                             <div className="flex-1">
-                              <span className="font-medium">
-                                {order.purchases?.product_name || "N/A"}
-                              </span>
+                              {order.is_new_order ? (
+                                <span className="font-medium">
+                                  {order.order_items && order.order_items.length > 0
+                                    ? order.order_items.map((item: any) => item.purchases?.product_name).filter(Boolean).join(", ")
+                                    : "N/A"}
+                                </span>
+                              ) : (
+                                <span className="font-medium">
+                                  {order.purchases?.product_name || "N/A"}
+                                </span>
+                              )}
                               {order.customer_name && (
                                 <span className="ml-2 text-xs text-blue-600">
                                   ({order.customer_name})
