@@ -125,7 +125,7 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
           notes_internal: order.notes_internal || "",
         })
       } else {
-        setFormData({
+      setFormData({
           customer_name: order.customer_name || "",
           delivery_method: order.delivery_method || "pickup",
           amount_paid: order.amount_paid?.toString() || "0",
@@ -137,7 +137,7 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
             quantity: item.quantity.toString(),
             price: item.total_price.toString(),
           })) || [],
-        })
+      })
         console.log('order.order_items on open:', order.order_items)
       }
     }
@@ -190,7 +190,7 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
     // Set selected purchase cho đơn cũ
     if (!isNewOrder) {
       const currentPurchase = filtered?.find((p) => p.id === order.purchase_id)
-      setSelectedPurchase(currentPurchase || null)
+    setSelectedPurchase(currentPurchase || null)
     }
   }
 
@@ -574,15 +574,15 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
             ) : (
               // UI cho đơn hàng cũ (một sản phẩm) - giữ nguyên
               <>
-                <div className="space-y-2">
+            <div className="space-y-2">
                   <Label htmlFor="purchase_id">Sản phẩm *</Label>
                   <Select name="purchase_id" value={formData.purchase_id} onValueChange={handlePurchaseSelect} required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn sản phẩm" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {purchases.map((purchase) => (
-                        <SelectItem key={purchase.id} value={purchase.id}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Chọn sản phẩm" />
+                </SelectTrigger>
+                <SelectContent>
+                  {purchases.map((purchase) => (
+                    <SelectItem key={purchase.id} value={purchase.id}>
                           <div className="flex flex-col">
                             <span className="font-medium">{purchase.product_name}</span>
                             <span className="text-xs text-gray-500">
@@ -592,13 +592,13 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
                               {purchase.id === order.purchase_id && ` • Hiện tại: +${order.quantity}`}
                             </span>
                           </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-                {selectedPurchase && (
+            {selectedPurchase && (
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -670,7 +670,7 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
                       required
                     />
                   </div>
-                </div>
+              </div>
               </>
             )}
 
@@ -725,17 +725,17 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
               </div>
             </div>
 
-            <div className="space-y-2">
+              <div className="space-y-2">
               <Label htmlFor="notes">Ghi chú</Label>
-              <Textarea
-                id="notes"
-                name="notes"
+                <Textarea
+                  id="notes"
+                  name="notes"
                 placeholder="Ghi chú đơn hàng"
-                value={formData.notes}
-                onChange={handleChange}
-                rows={2}
-              />
-            </div>
+                  value={formData.notes}
+                  onChange={handleChange}
+                  rows={2}
+                />
+              </div>
 
             {!isNewOrder && (
               <div className="space-y-2">
@@ -768,8 +768,8 @@ export function EditSaleModal({ order, children }: EditSaleModalProps) {
                 <p className="text-sm text-yellow-800">
                   ⚠️ Vui lòng kiểm tra lại thông tin: đảm bảo đã chọn sản phẩm, nhập số lượng và giá bán hợp lệ cho tất cả các mục.
                 </p>
-              </div>
-            )}
+                </div>
+              )}
           </form>
         </div>
       </DialogContent>

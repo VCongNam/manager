@@ -5,13 +5,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Plus, ArrowLeft, Calendar, TrendingUp, TrendingDown, DollarSign, Users } from "lucide-react"
+import { Plus, ArrowLeft, Calendar, TrendingUp, TrendingDown, DollarSign, Users, ChevronLeft, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { supabase } from "@/lib/supabase"
-import { DayPicker } from "react-day-picker"
-import "react-day-picker/dist/style.css"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getOrdersByDate } from "@/lib/actions"
+
+// Hàm chuẩn hóa ngày về local string YYYY-MM-DD
+function getLocalDateString(date: Date) {
+  return date.getFullYear() + '-' +
+    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+    String(date.getDate()).padStart(2, '0')
+}
 
 function getPaymentStatusBadge(status: string) {
   switch (status) {
@@ -34,11 +39,161 @@ function getOrderTypeBadge(isNewOrder: boolean) {
   }
 }
 
+// Custom Calendar Component
+function CustomCalendar({ 
+  selectedDate, 
+  onDateSelect, 
+  availableDates 
+}: { 
+  selectedDate: Date, 
+  onDateSelect: (date: Date) => void, 
+  availableDates: {[key: string]: number} 
+}) {
+  const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+  
+  const daysInWeek = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+  
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    const daysInMonth = lastDay.getDate()
+    const startingDayOfWeek = firstDay.getDay()
+    
+    const days = []
+    
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null)
+    }
+    
+    // Add all days of the month
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i))
+    }
+    
+    return days
+  }
+  
+  const isToday = (date: Date) => {
+    const today = new Date()
+    return date.toDateString() === today.toDateString()
+  }
+  
+  const isSelected = (date: Date) => {
+    return date.toDateString() === selectedDate.toDateString()
+  }
+  
+  const isDateWithData = (date: Date) => {
+    const dateStr = getLocalDateString(date)
+    return availableDates[dateStr] > 0
+  }
+  
+  const getOrderCount = (date: Date) => {
+    const dateStr = getLocalDateString(date)
+    return availableDates[dateStr] || 0
+  }
+  
+  const goToPreviousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))
+  }
+  
+  const goToNextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))
+  }
+  
+  const goToToday = () => {
+    const today = new Date()
+    setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))
+    onDateSelect(today)
+  }
+  
+  const days = getDaysInMonth(currentMonth)
+  
+  return (
+    <div className="calendar-container">
+      {/* Month Navigation */}
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={goToPreviousMonth}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <ChevronLeft className="h-4 w-4 text-blue-600" />
+        </button>
+        
+        <h3 className="text-lg font-semibold text-gray-900">
+          {currentMonth.toLocaleDateString('vi-VN', { 
+            month: 'long', 
+            year: 'numeric' 
+          })}
+        </h3>
+        
+        <button
+          onClick={goToNextMonth}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <ChevronRight className="h-4 w-4 text-blue-600" />
+        </button>
+      </div>
+      
+      {/* Days of Week Header */}
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {daysInWeek.map(day => (
+          <div key={day} className="text-center text-sm font-medium text-gray-500 py-2">
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((date, index) => {
+          if (!date) {
+            return <div key={index} className="h-10" />
+          }
+          
+          const hasOrders = isDateWithData(date)
+          const orderCount = getOrderCount(date)
+          const isSelectedDate = isSelected(date)
+          const isTodayDate = isToday(date)
+          
+          return (
+            <button
+              key={index}
+              onClick={() => onDateSelect(date)}
+              className={`
+                relative h-10 w-10 rounded-full text-sm font-medium transition-all duration-200
+                ${isSelectedDate 
+                  ? 'bg-blue-600 text-white shadow-lg' 
+                  : hasOrders 
+                    ? 'bg-green-500 text-white hover:bg-green-600' 
+                    : isTodayDate 
+                      ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
+                      : 'hover:bg-gray-100 text-gray-900'
+                }
+                ${isSelectedDate || hasOrders ? 'font-bold' : 'font-normal'}
+              `}
+            >
+              {date.getDate()}
+              {hasOrders && orderCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                  {orderCount}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function SalesByDatePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [availableDates, setAvailableDates] = useState<string[]>([])
+  const [availableDates, setAvailableDates] = useState<{[key: string]: number}>({})
   const [stats, setStats] = useState({
     totalRevenue: 0,
     paidAmount: 0,
@@ -52,20 +207,62 @@ export default function SalesByDatePage() {
   // Fetch available dates for calendar highlighting
   useEffect(() => {
     const fetchAvailableDates = async () => {
-      // Lấy dates từ cả sales và orders
-      const [salesResult, ordersResult] = await Promise.all([
-        supabase.from("sales").select("sale_date").order("sale_date", { ascending: false }),
-        supabase.from("orders").select("sale_date").order("sale_date", { ascending: false })
-      ])
-      
-      if (!salesResult.error && !ordersResult.error) {
-        const salesDates = salesResult.data?.map(s => s.sale_date) || []
-        const ordersDates = ordersResult.data?.map(o => o.sale_date) || []
-        const allDates = [...new Set([...salesDates, ...ordersDates])]
-        setAvailableDates(allDates)
+      try {
+        // Lấy dates từ cả sales và orders với số lượng đơn hàng
+        const [salesResult, ordersResult] = await Promise.all([
+          supabase.from("sales").select("sale_date").order("sale_date", { ascending: false }),
+          supabase.from("orders").select("sale_date").order("sale_date", { ascending: false })
+        ])
+        
+        if (salesResult.error) {
+          console.error("Error fetching sales dates:", salesResult.error)
+        }
+        
+        if (ordersResult.error) {
+          console.error("Error fetching orders dates:", ordersResult.error)
+        }
+        
+        if (!salesResult.error && !ordersResult.error) {
+          const salesDates = salesResult.data || []
+          const ordersDates = ordersResult.data || []
+          
+          console.log("Sales dates:", salesDates)
+          console.log("Orders dates:", ordersDates)
+          
+          // Đếm số lượng đơn hàng cho mỗi ngày
+          const dateCounts: {[key: string]: number} = {}
+          
+          salesDates.forEach(sale => {
+            if (sale.sale_date) {
+              const date = new Date(sale.sale_date)
+              const dateStr = getLocalDateString(date)
+              dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1
+            }
+          })
+          
+          ordersDates.forEach(order => {
+            if (order.sale_date) {
+              const date = new Date(order.sale_date)
+              const dateStr = getLocalDateString(date)
+              dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1
+            }
+          })
+          
+          console.log("Final date counts:", dateCounts)
+          setAvailableDates(dateCounts)
+        }
+      } catch (error) {
+        console.error("Error in fetchAvailableDates:", error)
       }
     }
     fetchAvailableDates()
+  }, [])
+
+  // Debug: Check today's data on mount
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      checkTodayData()
+    }
   }, [])
 
   useEffect(() => {
@@ -156,9 +353,24 @@ export default function SalesByDatePage() {
     setSelectedDate(startOfWeek)
   }
 
-  const isDateWithData = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0]
-    return availableDates.includes(dateStr)
+  const checkTodayData = async () => {
+    const today = new Date().toISOString().split('T')[0]
+    console.log("Checking data for today:", today)
+    
+    const [salesResult, ordersResult] = await Promise.all([
+      supabase.from("sales").select("*").eq("sale_date", today),
+      supabase.from("orders").select("*").eq("sale_date", today)
+    ])
+    
+    console.log("Today sales:", salesResult.data)
+    console.log("Today orders:", ordersResult.data)
+    console.log("Sales error:", salesResult.error)
+    console.log("Orders error:", ordersResult.error)
+  }
+
+  const isToday = (date: Date) => {
+    const today = new Date()
+    return date.toDateString() === today.toDateString()
   }
 
   return (
@@ -186,20 +398,22 @@ export default function SalesByDatePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Cột lịch */}
         <div className="lg:col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
+          <Card className="border-0 shadow-lg">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                <Calendar className="h-5 w-5 text-blue-600" />
                 Chọn ngày
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                {/* Nút Hôm nay và Tuần này */}
                 <div className="grid grid-cols-2 gap-2">
                   <Button 
-                    variant="outline" 
+                    variant={isToday(selectedDate) ? "default" : "outline"}
                     onClick={() => setSelectedDate(new Date())}
                     size="sm"
+                    className={isToday(selectedDate) ? "bg-blue-600 hover:bg-blue-700" : ""}
                   >
                     Hôm nay
                   </Button>
@@ -212,31 +426,60 @@ export default function SalesByDatePage() {
                   </Button>
                 </div>
                 
+                {/* Nút điều hướng ngày */}
                 <div className="flex items-center justify-between">
-                  <Button variant="ghost" size="sm" onClick={getPreviousDay}>
+                  <Button variant="ghost" size="sm" onClick={getPreviousDay} className="text-gray-600 hover:text-gray-800">
                     ← Hôm qua
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={getNextDay}>
+                  <Button variant="ghost" size="sm" onClick={getNextDay} className="text-gray-600 hover:text-gray-800">
                     Ngày mai →
                   </Button>
                 </div>
 
-                <DayPicker
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  required
-                  modifiers={{
-                    hasData: isDateWithData
-                  }}
-                  modifiersStyles={{
-                    hasData: { 
-                      backgroundColor: '#10b981', 
-                      color: 'white',
-                      fontWeight: 'bold'
-                    }
-                  }}
+                {/* Custom Calendar */}
+                <CustomCalendar
+                  selectedDate={selectedDate}
+                  onDateSelect={setSelectedDate}
+                  availableDates={availableDates}
                 />
+                
+                {/* Debug Info - chỉ hiển thị trong development */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-4 p-3 bg-gray-100 rounded-lg text-xs">
+                    <div className="font-semibold mb-2">Debug Info:</div>
+                    <div>Selected Date: {
+                      selectedDate.getFullYear() + '-' +
+                      String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' +
+                      String(selectedDate.getDate()).padStart(2, '0')
+                    }</div>
+                    <div>Available Dates: {Object.keys(availableDates).length}</div>
+                    <div>Today Orders: {availableDates[getLocalDateString(new Date())] || 0}</div>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="mt-2 px-2 py-1 bg-blue-500 text-white rounded text-xs mr-2"
+                    >
+                      Refresh Data
+                    </button>
+                    <button 
+                      onClick={checkTodayData}
+                      className="mt-2 px-2 py-1 bg-green-500 text-white rounded text-xs"
+                    >
+                      Check Today Data
+                    </button>
+                  </div>
+                )}
+                
+                {/* Chú thích */}
+                <div className="text-xs text-gray-500 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span>Ngày có đơn hàng</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                    <span>Ngày được chọn</span>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

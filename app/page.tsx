@@ -111,8 +111,12 @@ async function getDashboardData() {
     {}
   );
 
-  // Chỉ lấy ngày hôm nay nếu có đơn
-  const sortedDates = ordersByDate[today] ? [today] : [];
+  // Lấy 2 ngày gần nhất có đơn hàng
+  const allOrderDates = Object.keys(ordersByDate).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  const sortedDates = allOrderDates.slice(0, 2);
+
+  // Hàng còn lại trong kho
+  const inventory = purchases.filter(p => p.remaining_quantity > 0).sort((a, b) => b.remaining_quantity - a.remaining_quantity);
 
   return {
     totalPurchaseCost,
@@ -136,6 +140,7 @@ async function getDashboardData() {
     sortedDates,
     calculateActualRevenue,
     recentOrders: recentOrders.slice(0, 15), // Lấy 15 đơn hàng gần nhất
+    inventory,
   };
 }
 
@@ -328,6 +333,43 @@ export default async function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Quick Actions */}
+
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle>Hàng còn lại trong kho</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2">Sản phẩm</th>
+                    <th className="text-right py-2 px-2">Còn lại</th>
+                    <th className="text-right py-2 px-2">Đơn vị</th>
+                    <th className="text-right py-2 px-2">Nhà cung cấp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.inventory.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-4 text-muted-foreground">
+                        Không còn hàng tồn kho
+                      </td>
+                    </tr>
+                  )}
+                  {data.inventory.map((item) => (
+                    <tr key={item.id} className="border-b hover:bg-muted/50">
+                      <td className="py-2 px-2 font-medium">{item.product_name}</td>
+                      <td className="py-2 px-2 text-right">{item.remaining_quantity}</td>
+                      <td className="py-2 px-2 text-right">{item.unit}</td>
+                      <td className="py-2 px-2 text-right">{item.supplier_name || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Thao tác nhanh</CardTitle>
@@ -356,7 +398,6 @@ export default async function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Bán hàng gần đây theo ngày</CardTitle>
-           
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -396,10 +437,9 @@ export default async function Dashboard() {
                         </div>
                         {paidAmount < dailyActualRevenue && (
                           <div className="text-red-600">
-                            Chưa thu:{" "}
-                            {(dailyActualRevenue - paidAmount).toLocaleString(
-                              "vi-VN"
-                            )}
+                            Chưa thu: {(
+                              dailyActualRevenue - paidAmount
+                            ).toLocaleString("vi-VN")}
                             đ
                           </div>
                         )}
@@ -448,18 +488,12 @@ export default async function Dashboard() {
                                 </div>
                                 {actualRevenue !== order.total_revenue && (
                                   <div className="text-xs text-muted-foreground">
-                                    (gốc:{" "}
-                                    {order.total_revenue.toLocaleString("vi-VN")}
-                                    đ)
+                                    (gốc: {order.total_revenue.toLocaleString("vi-VN")}đ)
                                   </div>
                                 )}
                                 {(order.amount_remaining || 0) > 0 && (
                                   <div className="text-xs text-red-600">
-                                    Còn:{" "}
-                                    {(
-                                      order.amount_remaining || 0
-                                    ).toLocaleString("vi-VN")}
-                                    đ
+                                    Còn: {(order.amount_remaining || 0).toLocaleString("vi-VN")}đ
                                   </div>
                                 )}
                               </div>
@@ -498,6 +532,9 @@ export default async function Dashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Hàng còn lại trong kho */}
+        
       </div>
     </div>
   );

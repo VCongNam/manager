@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
@@ -19,14 +17,14 @@ export default function NewSalePage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [purchases, setPurchases] = useState<Purchase[]>([])
-  const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null)
+  const [orderItems, setOrderItems] = useState([
+    { purchase_id: "", quantity: "", price: "" }
+  ])
   const [formData, setFormData] = useState({
-    purchase_id: "",
-    quantity: "",
-    total_price: "",
-    payment_status: "unpaid" as "paid" | "unpaid" | "partial",
-    sale_date: new Date().toISOString().split("T")[0],
+    shipping_fee: "0",
+    amount_paid: "",
     notes: "",
+    sale_date: new Date().toISOString().split("T")[0],
   })
 
   useEffect(() => {
@@ -44,67 +42,31 @@ export default function NewSalePage() {
       console.error("Error fetching purchases:", error)
       return
     }
-
     setPurchases(data || [])
   }
 
-  const handlePurchaseSelect = (purchaseId: string) => {
-    const purchase = purchases.find((p) => p.id === purchaseId)
-    setSelectedPurchase(purchase || null)
-    setFormData((prev) => ({
-      ...prev,
-      purchase_id: purchaseId,
-    }))
+  const addOrderItem = () => setOrderItems([...orderItems, { purchase_id: "", quantity: "", price: "" }])
+  const removeOrderItem = (idx: number) => setOrderItems(orderItems.filter((_, i) => i !== idx))
+  const updateOrderItem = (idx: number, field: string, value: string) => {
+    setOrderItems(orderItems.map((item, i) => i === idx ? { ...item, [field]: value } : item))
   }
+  const getPurchaseById = (id: string) => purchases.find((p) => p.id === id)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
+  // Tính tổng tiền tự động (tổng các giá bán từng dòng)
+  const totalOrderPrice = orderItems.reduce((sum, item) => {
+    const price = Number(item.price) || 0
+    return sum + price
+  }, 0)
+  const shippingFee = Number.parseInt(formData.shipping_fee) || 0
+  const totalAmount = totalOrderPrice + shippingFee
+  const amountPaid = Number.parseInt(formData.amount_paid) || 0
+  const amountRemaining = totalAmount - amountPaid
 
-    try {
-      const quantity = Number.parseFloat(formData.quantity)
-      const totalPrice = Number.parseInt(formData.total_price)
-      const unitPrice = Math.round(totalPrice / quantity)
-
-      if (!selectedPurchase) {
-        throw new Error("Vui lòng chọn sản phẩm")
-      }
-
-      if (quantity > selectedPurchase.remaining_quantity) {
-        throw new Error("Số lượng bán vượt quá số lượng tồn kho")
-      }
-
-      // Insert sale
-      const { error: saleError } = await supabase.from("sales").insert([
-        {
-          purchase_id: formData.purchase_id,
-          quantity: quantity,
-          unit_price: unitPrice,
-          total_revenue: totalPrice,
-          payment_status: formData.payment_status,
-          sale_date: formData.sale_date,
-          notes: formData.notes || null,
-        },
-      ])
-
-      if (saleError) throw saleError
-
-      // Update remaining quantity in purchases
-      const newRemainingQuantity = selectedPurchase.remaining_quantity - quantity
-      const { error: updateError } = await supabase
-        .from("purchases")
-        .update({ remaining_quantity: newRemainingQuantity })
-        .eq("id", formData.purchase_id)
-
-      if (updateError) throw updateError
-
-      router.push("/sales")
-    } catch (error: any) {
-      console.error("Error creating sale:", error)
-      alert(error.message || "Có lỗi xảy ra khi tạo đơn bán hàng")
-    } finally {
-      setLoading(false)
-    }
+  // Kiểm tra tồn kho khi nhập số lượng
+  const isQuantityValid = (purchase_id: string, quantity: string) => {
+    const purchase = getPurchaseById(purchase_id)
+    if (!purchase) return true
+    return Number(quantity) <= Number(purchase.remaining_quantity)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -112,6 +74,43 @@ export default function NewSalePage() {
       ...prev,
       [e.target.name]: e.target.value,
     }))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      // Validate
+      for (let i = 0; i < orderItems.length; i++) {
+        const item = orderItems[i]
+        if (!item.purchase_id || !item.quantity || !item.price) {
+          throw new Error(`Vui lòng điền đầy đủ thông tin cho sản phẩm thứ ${i + 1}`)
+        }
+        if (!isQuantityValid(item.purchase_id, item.quantity)) {
+          throw new Error(`Số lượng vượt tồn kho cho sản phẩm thứ ${i + 1}`)
+        }
+      }
+      // Chuẩn bị dữ liệu gửi đi
+      const form = new FormData()
+      orderItems.forEach((item, idx) => {
+        form.append(`purchase_id_${idx}`, item.purchase_id)
+        form.append(`quantity_${idx}`, item.quantity)
+        form.append(`price_${idx}`, item.price)
+      })
+      form.append("total_items", orderItems.length.toString())
+      form.append("shipping_fee", formData.shipping_fee)
+      form.append("amount_paid", formData.amount_paid)
+      form.append("notes", formData.notes)
+      form.append("sale_date", formData.sale_date)
+      // Gọi API backend (giống modal)
+      const { data, error } = await supabase.functions.invoke("createOrderWithItems", { body: Object.fromEntries(form) })
+      if (error) throw error
+      router.push("/sales")
+    } catch (error: any) {
+      alert(error.message || "Có lỗi xảy ra khi tạo đơn bán hàng")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -124,150 +123,141 @@ export default function NewSalePage() {
         </Link>
         <div>
           <h1 className="text-3xl font-bold">Thêm đơn bán hàng</h1>
-          <p className="text-muted-foreground">Tạo đơn bán hàng mới</p>
+          <p className="text-muted-foreground">Tạo đơn bán hàng nhiều sản phẩm</p>
         </div>
       </div>
-
       <Card className="max-w-2xl">
         <CardHeader>
           <CardTitle>Thông tin bán hàng</CardTitle>
-          <CardDescription>Điền đầy đủ thông tin về đơn hàng bán ra</CardDescription>
+          <CardDescription>Chọn nhiều sản phẩm, nhập số lượng, giá bán từng dòng.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="purchase_id">Chọn sản phẩm *</Label>
-              <Select onValueChange={handlePurchaseSelect} required>
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn sản phẩm để bán" />
-                </SelectTrigger>
-                <SelectContent>
-                  {purchases.map((purchase) => (
-                    <SelectItem key={purchase.id} value={purchase.id}>
-                      {purchase.product_name} - Còn: {purchase.remaining_quantity} {purchase.unit}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedPurchase && (
-              <div className="p-4 bg-muted rounded-lg">
-                <h4 className="font-medium mb-2">Thông tin sản phẩm:</h4>
-                <p className="text-sm text-muted-foreground">
-                  Tên: {selectedPurchase.product_name}
-                  <br />
-                  Số lượng còn lại: {selectedPurchase.remaining_quantity} {selectedPurchase.unit}
-                  <br />
-                  Giá nhập: {(selectedPurchase.total_cost / selectedPurchase.quantity).toLocaleString("vi-VN")}đ/
-                  {selectedPurchase.unit}
-                </p>
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Số lượng bán *</Label>
-                <Input
-                  id="quantity"
-                  name="quantity"
-                  type="number"
-                  step="0.01"
-                  value={formData.quantity}
-                  onChange={handleChange}
-                  placeholder="0"
-                  max={selectedPurchase?.remaining_quantity || undefined}
-                  required
-                />
-                {selectedPurchase && (
-                  <p className="text-xs text-muted-foreground">
-                    Tối đa: {selectedPurchase.remaining_quantity} {selectedPurchase.unit}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="total_price">Tổng giá tiền (VNĐ) *</Label>
-                <Input
-                  id="total_price"
-                  name="total_price"
-                  type="number"
-                  value={formData.total_price}
-                  onChange={handleChange}
-                  placeholder="0"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="payment_status">Trạng thái thanh toán *</Label>
-              <Select
-                value={formData.payment_status}
-                onValueChange={(value: "paid" | "unpaid" | "partial") =>
-                  setFormData((prev) => ({ ...prev, payment_status: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn trạng thái thanh toán" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="paid">✅ Đã thanh toán</SelectItem>
-                  <SelectItem value="unpaid">❌ Chưa thanh toán</SelectItem>
-                  <SelectItem value="partial">⏳ Thanh toán một phần</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {formData.total_price && (
-              <div className="p-4 bg-green-50 rounded-lg">
-                <p className="font-medium text-green-800">
-                  Tổng tiền: {Number.parseInt(formData.total_price).toLocaleString("vi-VN")}đ
-                </p>
-                {formData.quantity && (
-                  <p className="text-sm text-green-700">
-                    Đơn giá trung bình:{" "}
-                    {(Number.parseInt(formData.total_price) / Number.parseFloat(formData.quantity)).toLocaleString(
-                      "vi-VN",
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Danh sách sản phẩm */}
+            <div className="space-y-3">
+              {orderItems.map((item, idx) => {
+                const purchase = getPurchaseById(item.purchase_id)
+                return (
+                  <div key={idx} className="bg-white border rounded-lg shadow-sm p-4 flex flex-col gap-2 relative">
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-5">
+                        <Label className="text-sm font-medium">Sản phẩm</Label>
+                        <Select
+                          name={`purchase_id_${idx}`}
+                          value={item.purchase_id}
+                          onValueChange={(val) => updateOrderItem(idx, "purchase_id", val)}
+                          required
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Chọn sản phẩm" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {purchases.map((purchase) => (
+                              <SelectItem key={purchase.id} value={purchase.id}>
+                                {purchase.product_name} - Còn: {purchase.remaining_quantity} {purchase.unit}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Số lượng</Label>
+                        <Input
+                          name={`quantity_${idx}`}
+                          type="number"
+                          min={1}
+                          max={purchase?.remaining_quantity || undefined}
+                          value={item.quantity}
+                          onChange={(e) => updateOrderItem(idx, "quantity", e.target.value)}
+                          placeholder="Số lượng"
+                          className="w-full"
+                          required
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Thành tiền</Label>
+                        <Input
+                          name={`price_${idx}`}
+                          type="number"
+                          min={0}
+                          value={item.price}
+                          onChange={(e) => updateOrderItem(idx, "price", e.target.value)}
+                          placeholder="Giá bán (tổng)"
+                          className="w-full"
+                          required
+                        />
+                      </div>
+                      <div className="col-span-1 flex justify-end items-center h-full">
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removeOrderItem(idx)} disabled={orderItems.length === 1} className="text-red-500 hover:bg-red-50">
+                          <Trash2 className="w-5 h-5" />
+                        </Button>
+                      </div>
+                    </div>
+                    {purchase && (
+                      <div className="pt-1 text-xs text-gray-500">
+                        Tối đa: {purchase.remaining_quantity} {purchase.unit} • Còn lại: {purchase.remaining_quantity} {purchase.unit}
+                      </div>
                     )}
-                    đ/{selectedPurchase?.unit}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="sale_date">Ngày bán *</Label>
-              <Input
-                id="sale_date"
-                name="sale_date"
-                type="date"
-                value={formData.sale_date}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Ghi chú</Label>
-              <Textarea
-                id="notes"
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                placeholder="Ghi chú về đơn hàng..."
-                rows={3}
-              />
-            </div>
-
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" disabled={loading || !selectedPurchase}>
-                {loading ? "Đang tạo..." : "Tạo đơn bán hàng"}
+                  </div>
+                )
+              })}
+              <Button type="button" variant="outline" className="mt-1" onClick={addOrderItem}>
+                + Thêm sản phẩm
               </Button>
-              <Link href="/sales">
-                <Button type="button" variant="outline">
-                  Hủy
-                </Button>
-              </Link>
+            </div>
+            {/* Tổng kết thanh toán */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-2">
+              <div className="font-semibold text-base mb-2">Tổng kết thanh toán</div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Tổng giá bán:</span>
+                <span>{totalOrderPrice.toLocaleString("vi-VN")}đ</span>
+              </div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Phí vận chuyển:</span>
+                <span>{shippingFee.toLocaleString("vi-VN")}đ</span>
+              </div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Tổng cộng:</span>
+                <span className="font-semibold">{totalAmount.toLocaleString("vi-VN")}đ</span>
+              </div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Đã thanh toán:</span>
+                <span>{amountPaid.toLocaleString("vi-VN")}đ</span>
+              </div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Còn lại:</span>
+                <span className={amountRemaining > 0 ? "text-red-600 font-semibold" : "text-green-700 font-semibold"}>{amountRemaining.toLocaleString("vi-VN")}đ</span>
+              </div>
+            </div>
+            {/* Ngày bán, ghi chú, submit */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="sale_date">Ngày bán *</Label>
+                <Input
+                  id="sale_date"
+                  name="sale_date"
+                  type="date"
+                  value={formData.sale_date}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="notes">Ghi chú</Label>
+                <Textarea
+                  id="notes"
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleChange}
+                  placeholder="Ghi chú cho đơn hàng (nếu có)"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={loading} className="mt-2">
+                {loading ? "Đang lưu..." : "Lưu đơn hàng"}
+              </Button>
             </div>
           </form>
         </CardContent>

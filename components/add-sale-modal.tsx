@@ -185,15 +185,15 @@ export function AddSaleModal() {
                         >
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="Chọn sản phẩm" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {purchases.map((purchase) => (
-                              <SelectItem key={purchase.id} value={purchase.id}>
-                                {purchase.product_name} - Còn: {purchase.remaining_quantity} {purchase.unit}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                </SelectTrigger>
+                <SelectContent>
+                  {purchases.map((purchase) => (
+                    <SelectItem key={purchase.id} value={purchase.id}>
+                      {purchase.product_name} - Còn: {purchase.remaining_quantity} {purchase.unit}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
                       </div>
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">Số lượng</Label>
